@@ -24,7 +24,8 @@ TEST:
   # DEVICE: cpu
 
 ROBUSTNESS:
-  ENABLE: False
+  # ENABLE: False
+  ENABLE: True
   BOUNDING_METHOD: bern
   MIN_ALPHA: 0.0
   MAX_ALPHA: 0.9
@@ -44,14 +45,14 @@ MODEL:
   TYPE: FC
   HIDDEN_LAYERS: [100,100,100]
   ACTIVATION: bern
-  DEGREE: 16
+  DEGREE: 8
   
 DATASET: staliro
 
 CHECKPOINT:
   DIR: experiments/staliro/
-  # LOAD: False
-  LOAD: True
+  LOAD: False
+  # LOAD: True
   PATH_TO_CKPT: "/home/koh/work/experiments/staliro/test/test/checkpoint_best_model.pth"
 
 EXPERIMENT:
