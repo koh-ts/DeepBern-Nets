@@ -11,7 +11,7 @@ import yaml
 from models.models import CNNb, CNNc, FCModel, CNNa
 from tqdm import tqdm
 import os
-from datasets import load_cifar10, load_mnist
+from datasets import load_cifar10, load_mnist, load_staliro
 from utils import RecursiveNamespace
 
 import torchattacks
@@ -114,6 +114,53 @@ def test_robust(model, testloader, device="cuda", eps=0.0, mode="ibp", verbose=T
         )
     return model_acc, cert_acc
 
+def test_robust_regression(model, testloader, device="cuda", eps=0.0, mode="ibp", verbose=True):
+    model.eval()
+    model.to(device)
+    criterion = torch.nn.MSELoss()  # Use Mean Squared Error for regression
+    total_loss = 0.0
+    total_samples = 0
+    all_worst_case_deviations = []
+
+    for batch_idx, (x, target) in enumerate(tqdm(testloader)):
+        x, target = x.to(device), target.to(device)
+        batch_size = x.size(0)
+        total_samples += batch_size
+
+        with torch.no_grad():
+            output = model(x)
+            loss = criterion(output, target)
+            total_loss += loss.item() * batch_size
+
+        if mode in ["ibp", "bern", "IBP", "BERN"]:
+            with torch.no_grad():
+                in_lb = torch.maximum(x - eps, torch.zeros_like(x))
+                in_ub = torch.minimum(x + eps, torch.ones_like(x))
+
+                inf_ball = torch.cat((in_lb.unsqueeze(-1), in_ub.unsqueeze(-1)), -1)
+
+                out_bounds = model.forward_subinterval(inf_ball)
+                out_lb = out_bounds[..., 0]
+                out_ub = out_bounds[..., 1]
+
+                deviation_lb = torch.abs(out_lb - target)
+                deviation_ub = torch.abs(out_ub - target)
+                worst_case_deviation = torch.max(deviation_lb, deviation_ub)
+
+                all_worst_case_deviations.append(worst_case_deviation.cpu())
+        else:
+            pass
+        
+    all_worst_case_deviations = torch.cat(all_worst_case_deviations)
+    mean_worst_case_deviation = all_worst_case_deviations.mean().item()
+    std_worst_case_deviation = all_worst_case_deviations.std().item()
+
+    average_loss = total_loss / total_samples
+    if verbose:
+        print(f"Average Loss on Test Set: {average_loss:.6f}")
+        print(f"Average Worst-Case Deviation: {mean_worst_case_deviation:.6f} ± {std_worst_case_deviation:.6f}")
+    return average_loss, mean_worst_case_deviation
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -148,6 +195,10 @@ if __name__ == "__main__":
         )
     elif cfg.DATASET == "mnist":
         trainloader, testloader = load_mnist(
+            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, samples_dist=1
+        )
+    elif cfg.DATASET == "staliro":
+        trainloader, testloader = load_staliro(
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, samples_dist=1
         )
 
@@ -198,35 +249,64 @@ if __name__ == "__main__":
         print(e)
         raise e
     eps = cfg.ROBUSTNESS.TEST_EPS
-    if cfg.TEST.MODE == "adv":
+    if cfg.DATASET == "staliro":
         if cfg.TEST.IBP:
             s_time = perf_counter()
             print("======== IBP verification ========")
-            ibp_test_acc, ibp_cert_acc = test_robust(
+            test_loss, mean_worst_case_deviation = test_robust_regression(
                 model, testloader, eps=eps, mode="IBP", device=device, verbose=False
             )
             e_time = perf_counter()
-            print(f"Test accuracy: {ibp_test_acc}%")
-            print(f"Certified accuracy (eps = {eps}): {ibp_cert_acc}%")
+            print(f"Test loss: {test_loss}")
+            print(f"Mean_worst_case_deviation (eps = {eps}): {mean_worst_case_deviation}")
             print(f"Time taken: {e_time - s_time}s")
-        if cfg.TEST.BERN_IBP:
-            s_time = perf_counter()
-            print("======== Bern-IBP verification ========")
-            bern_test_acc, bern_cert_acc = test_robust(
-                model, testloader, eps=eps, mode="bern", device=device, verbose=False
+        # if cfg.TEST.BERN_IBP:
+        #     s_time = perf_counter()
+        #     print("======== Bern-IBP verification ========")
+        #     test_loss, mean_worst_case_deviation = test_robust_regression(
+        #         model, testloader, eps=eps, mode="bern", device=device, verbose=False
+        #     )
+        #     e_time = perf_counter()
+        #     print(f"Test loss: {test_loss}")
+        #     print(f"Mean_worst_case_deviation (eps = {eps}): {mean_worst_case_deviation}")
+        #     print(f"Time taken: {e_time - s_time}s")
+        # if cfg.TEST.PGD:
+        #     print("======== PGD verification ========")
+        #     pgd_test_acc, pgd_cert_acc = test_robust_regression(
+        #         model, testloader, eps=eps, mode="pgd", device=device, verbose=False
+        #     )
+        #     print(f"Test accuracy: {pgd_test_acc}%")
+        #     print(f"Certified accuracy (eps = {eps}): {pgd_cert_acc}%")
+    else:
+        if cfg.TEST.MODE == "adv":
+            if cfg.TEST.IBP:
+                s_time = perf_counter()
+                print("======== IBP verification ========")
+                ibp_test_acc, ibp_cert_acc = test_robust(
+                    model, testloader, eps=eps, mode="IBP", device=device, verbose=False
+                )
+                e_time = perf_counter()
+                print(f"Test accuracy: {ibp_test_acc}%")
+                print(f"Certified accuracy (eps = {eps}): {ibp_cert_acc}%")
+                print(f"Time taken: {e_time - s_time}s")
+            if cfg.TEST.BERN_IBP:
+                s_time = perf_counter()
+                print("======== Bern-IBP verification ========")
+                bern_test_acc, bern_cert_acc = test_robust(
+                    model, testloader, eps=eps, mode="bern", device=device, verbose=False
+                )
+                e_time = perf_counter()
+                print(f"Test accuracy: {bern_test_acc}%")
+                print(f"Certified accuracy (eps = {eps}): {bern_cert_acc}%")
+                print(f"Time taken: {e_time - s_time}s")
+            if cfg.TEST.PGD:
+                print("======== PGD verification ========")
+                pgd_test_acc, pgd_cert_acc = test_robust(
+                    model, testloader, eps=eps, mode="pgd", device=device, verbose=False
+                )
+                print(f"Test accuracy: {pgd_test_acc}%")
+                print(f"Certified accuracy (eps = {eps}): {pgd_cert_acc}%")
+        elif cfg.TEST.MODE == "clean":
+            test_acc, cert_acc = test_robust(
+                model, testloader, eps=eps, mode="clean", device=device, verbose=False
             )
-            e_time = perf_counter()
-            print(f"Test accuracy: {bern_test_acc}%")
-            print(f"Certified accuracy (eps = {eps}): {bern_cert_acc}%")
-            print(f"Time taken: {e_time - s_time}s")
-        if cfg.TEST.PGD:
-            print("======== PGD verification ========")
-            pgd_test_acc, pgd_cert_acc = test_robust(
-                model, testloader, eps=eps, mode="pgd", device=device, verbose=False
-            )
-            print(f"Test accuracy: {pgd_test_acc}%")
-            print(f"Certified accuracy (eps = {eps}): {pgd_cert_acc}%")
-    elif cfg.TEST.MODE == "clean":
-        test_acc, cert_acc = test_robust(
-            model, testloader, eps=eps, mode="clean", device=device, verbose=False
-        )

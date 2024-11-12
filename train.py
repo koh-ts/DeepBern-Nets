@@ -12,13 +12,13 @@ import torchvision.datasets as datasets
 import torch.optim as optim
 import torch.nn as nn
 from tqdm import tqdm
-from datasets import load_cifar10, load_mnist
+from datasets import load_cifar10, load_mnist, load_staliro
 
 # from auto_LiRPA import BoundedModule, BoundedTensor, PerturbationLpNorm
 import numpy as np
 import yaml
 import mlflow
-from test import test_robust
+from test import test_robust, test_robust_regression
 from utils import ParamScheduler, RecursiveNamespace
 
 torch.manual_seed(123123)
@@ -115,6 +115,41 @@ def compute_robust_loss(
         )
 
     r_loss = nn.CrossEntropyLoss()(logits, labels)
+    return r_loss
+
+def compute_robust_loss_regression(
+    model,
+    x,
+    y,
+    eps=None,
+    beta=1,
+    lirpa_model=None,
+    bounding_method="bern",
+):
+    if eps is None:
+        return 0.0
+    in_lb = torch.maximum(x - eps, torch.zeros_like(x))
+    in_ub = torch.minimum(x + eps, torch.ones_like(x))
+    
+    if bounding_method == "bern":
+        inf_ball = torch.cat((in_lb.unsqueeze(-1), in_ub.unsqueeze(-1)), -1)
+        out_bounds = model.forward_subinterval(inf_ball)
+        out_lb = out_bounds[..., 0]
+        out_ub = out_bounds[..., 1]
+    else:
+        raise Exception(
+            "Error in Bounding Method. For IBP you have to provide a LIRPA model"
+        )
+
+    # deviation_lb = torch.abs(out_lb - y)
+    # deviation_ub = torch.abs(out_ub - y)
+    # worst_case_deviation = torch.max(deviation_lb, deviation_ub)
+
+    loss_fn = nn.MSELoss(reduction='none')
+    loss_lb = loss_fn(out_lb, y)
+    loss_ub = loss_fn(out_ub, y)
+    robust_loss_per_sample = torch.max(loss_lb, loss_ub)
+    r_loss = robust_loss_per_sample.mean()
     return r_loss
 
 
@@ -371,6 +406,226 @@ def train(
         mlflow.log_metric("Average epoch time", epoch_times.mean(), step=epoch + 1)
         mlflow.log_metric("Std epoch time", epoch_times.std(), step=epoch + 1)
 
+def train_regression(
+    model,
+    trainloader,
+    testloader,
+    optimizer,
+    loss_fn,
+    cfg,
+    device="cuda",
+    lirpa_model=None,
+    start_epoch=0,
+    benchmark_loader=None,
+):
+    best_model_loss = float('inf')
+    min_alpha = cfg.ROBUSTNESS.MIN_ALPHA
+    max_alpha = cfg.ROBUSTNESS.MAX_ALPHA
+    decayRate = cfg.TRAIN.LR_DECAY_RATE
+    max_beta = cfg.ROBUSTNESS.MAX_BETA
+    min_beta = cfg.ROBUSTNESS.MIN_BETA
+    min_eps, max_eps = cfg.ROBUSTNESS.MIN_EPS, cfg.ROBUSTNESS.MAX_EPS
+    test_eps = cfg.ROBUSTNESS.TEST_EPS
+    epochs = cfg.TRAIN.EPOCHS
+    eps_scheduler = ParamScheduler(
+        "linear",
+        cfg.ROBUSTNESS.EPS_START_EPOCH,
+        cfg.ROBUSTNESS.EPS_LAST_EPOCH,
+        min_eps,
+        max_eps,
+    )
+    alpha_scheduler = ParamScheduler(
+        "linear",
+        cfg.ROBUSTNESS.ROBUST_TRAINING_START_EPOCH,
+        cfg.ROBUSTNESS.ROBUST_TRAINING_LAST_EPOCH,
+        max_alpha,
+        min_alpha,
+    )
+    beta_scheduler = ParamScheduler(
+        "linear",
+        cfg.ROBUSTNESS.ROBUST_TRAINING_START_EPOCH,
+        cfg.ROBUSTNESS.ROBUST_TRAINING_LAST_EPOCH,
+        max_beta,
+        min_beta,
+    )
+    lr_decay_start_epoch = (
+        30 if cfg.TRAIN.LR_DECAY_START_EPOCH is None else cfg.TRAIN.LR_DECAY_START_EPOCH
+    )
+    bounding_method = cfg.ROBUSTNESS.BOUNDING_METHOD
+    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer=optimizer, gamma=decayRate
+    )
+    # init forward pass
+    # with torch.no_grad():
+    #     dummy = model(next(iter(trainloader))[0].to(device))
+    # num_class = dummy.shape[-1]
+    epoch_times = []
+    for epoch in range(start_epoch, epochs):
+        epoch_s_time = time.perf_counter()
+        model.train()
+        eps = eps_scheduler.step(epoch)
+        with torch.no_grad():
+            beta = 0
+            alpha = 1.0
+            if epoch >= cfg.ROBUSTNESS.WARMUP_EPOCHS and cfg.ROBUSTNESS.ENABLE:
+                alpha = alpha_scheduler.step(epoch)
+                if "IBP" in bounding_method:
+                    beta = beta_scheduler.step(epoch)
+
+        epoch_loss = 0
+        epoch_robust_loss = 0
+
+        if cfg.TRAIN.MODE == "adv":
+            adversary = torchattacks.PGD(model, eps, alpha=eps / 50, steps=10)
+        for batch_idx, (x, y) in enumerate(tqdm(trainloader)):
+            optimizer.zero_grad()
+            x = x.to(device)
+            y = y.to(device)
+            if cfg.TRAIN.MODE == "adv" and epoch >= cfg.ROBUSTNESS.WARMUP_EPOCHS:
+                x = adversary(x, y)
+            pred = model(x)
+            if lirpa_model is not None:
+                update_shared_buffers(model, lirpa_model)
+            if alpha != 1.0 and cfg.ROBUSTNESS.ENABLE:
+                robust_loss = compute_robust_loss_regression(
+                    model,
+                    x,
+                    y,
+                    eps,
+                    beta=beta,
+                    lirpa_model=lirpa_model,
+                    bounding_method=bounding_method,
+                )
+            else:
+                robust_loss = torch.tensor(0)
+            tr_loss = loss_fn(pred, y)
+            loss = alpha * tr_loss + (1 - alpha) * robust_loss
+            epoch_loss += loss
+            epoch_robust_loss += robust_loss
+            loss.backward()
+            optimizer.step()
+            # if (batch_idx+1) % 100 == 0 or (batch_idx+1) == len(trainloader):
+            #     print('==>>> epoch: {}, batch index: {}, train loss: {:.6f}'.format(
+            #         epoch+1, batch_idx+1, loss))
+            with torch.no_grad():
+                model(x[0:1])  # Dummy forward to update bounds
+
+        epoch_e_time = time.perf_counter()
+        print(
+            f"Epoch ({epoch+1}/ {epochs}): Training loss = {epoch_loss}, Robust loss = {epoch_robust_loss}, lr = {optimizer.param_groups[0]['lr']}, Alpha = {alpha:.4f}, Beta = {beta:.4f}, Eps = {eps:.4f}"
+        )
+        if mlflow_enable:
+            mlflow.log_metrics(
+                {"lr": optimizer.param_groups[0]["lr"], "Alpha": alpha, "Eps": eps},
+                step=epoch + 1,
+            )
+            mlflow.log_metrics(
+                {
+                    "Training loss": epoch_loss.item(),
+                    "Robust loss": epoch_robust_loss.item(),
+                },
+                step=epoch + 1,
+            )
+
+        total_weights_norm = 0
+        with torch.no_grad():
+            for p in model.parameters():
+                param_norm = p.grad.data.norm(float("inf"))
+                total_weights_norm += param_norm.item()
+        print(f"Parameters inf-norm = {total_weights_norm}")
+        if epoch > lr_decay_start_epoch:
+            if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                lr_scheduler.step(epoch_robust_loss)
+            else:
+                lr_scheduler.step()
+
+        if (epoch + 1) % 1 == 0 or (epoch + 1) == epochs:
+            # train acc
+            # correct_cnt = 0
+            total_cnt = 0
+            total_loss = 0
+            model.eval()
+            with torch.no_grad():
+                for batch_idx, (x, target) in enumerate(tqdm(trainloader)):
+                    x, target = x.to(device), target.to(device)
+                    out = model(x)
+                    # tr_loss = loss_fn(out, target)
+                    # total_loss += tr_loss
+                    # _, pred_label = torch.max(out.data, 1)
+                    total_cnt += x.shape[0]
+                    # correct_cnt += (pred_label == target.data).sum()
+                    batch_mse = loss_fn(out, target)
+                    total_loss += batch_mse.item()
+                # model_acc = correct_cnt * 100 / total_cnt
+                # print(f"Train accuracy: {model_acc}")
+                avg_loss = total_loss / total_cnt
+                print(f"Average Training Loss: {avg_loss}")
+                # testing
+                if (epoch + 1) % cfg.ROBUSTNESS.TEST_EVERY_N_EPOCH == 0:
+                    # torch.cuda.empty_cache()
+                    if(cfg.MODEL.ACTIVATION == 'relu' and cfg.ROBUSTNESS.BOUNDING_METHOD == 'bern'):
+                        raise Exception("Relu activation is not supported with bern bounding method")
+                    test_loss, mean_worst_case_deviation = test_robust_regression(
+                        model,
+                        testloader,
+                        device=device,
+                        eps=test_eps,
+                        mode=cfg.ROBUSTNESS.BOUNDING_METHOD,
+                    )
+                    if benchmark_loader is not None:
+                        _, mean_worst_case_deviation = test_robust_regression(
+                            model,
+                            benchmark_loader,
+                            device=device,
+                            eps=test_eps,
+                            mode=cfg.ROBUSTNESS.BOUNDING_METHOD,
+                        )
+                    if mlflow_enable:
+                        mlflow.log_metrics(
+                            {
+                                "Test Loss": test_loss.item(),
+                                "Average Worst-Case Deviation": mean_worst_case_deviation,
+                            },
+                            step=epoch + 1,
+                        )
+                    # For regression, we want to minimize the loss
+                    # if cert_acc >= best_model_acc:
+                    if mean_worst_case_deviation <= best_model_loss:
+                        best_model_loss = mean_worst_case_deviation
+                        torch.save(
+                            {
+                                "epoch": epoch,
+                                "model_state_dict": model.state_dict(),
+                                "optimizer_state_dict": optimizer.state_dict(),
+                                "loss": tr_loss,
+                            },
+                            f"{cfg.BASE_DIR}/checkpoint_best_model.pth",
+                        )
+                        if mlflow_enable:
+                            mlflow.log_artifact(
+                                f"{cfg.BASE_DIR}/checkpoint_best_model.pth"
+                            )
+                            mlflow.log_metric(
+                                "Min mean_worst_case_deviation", best_model_loss, step=epoch + 1
+                            )
+        if (epoch + 1) % 10 == 0 or (epoch + 1) == epochs:
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "loss": tr_loss,
+                },
+                f"{cfg.BASE_DIR}/checkpoint_{epoch+1}.pth",
+            )
+        epoch_time = epoch_e_time - epoch_s_time
+        epoch_times.append(epoch_time)
+    epoch_times = np.array(epoch_times)
+    print(f"Average epoch time: {epoch_times.mean():.2f} s +-{epoch_times.std():.2f} s")
+    if mlflow_enable:
+        mlflow.log_metric("Average epoch time", epoch_times.mean(), step=epoch + 1)
+        mlflow.log_metric("Std epoch time", epoch_times.std(), step=epoch + 1)
+
 
 if __name__ == "__main__":
     # num_inputs = 784
@@ -442,6 +697,13 @@ if __name__ == "__main__":
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
         )
         _, benchmark_testloader = load_mnist(
+            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
+        )
+    elif cfg.DATASET == "staliro":
+        trainloader, testloader = load_staliro(
+            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
+        )
+        _, benchmark_testloader = load_staliro(
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
         )
 
@@ -530,8 +792,9 @@ if __name__ == "__main__":
     #     lirpa_model = BoundedModule(model, dummy_input)
     #     model.train()
 
-    criterion = nn.CrossEntropyLoss()
-    train(
+    # criterion = nn.CrossEntropyLoss()
+    criterion = nn.MSELoss(reduction='sum')
+    train_regression(
         model,
         trainloader,
         testloader,
