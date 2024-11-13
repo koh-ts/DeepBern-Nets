@@ -8,10 +8,8 @@ import json
 
 class StaliroDataset(Dataset):
     def __init__(self, train=True, transform=None):
-        # self.data_path_train = "/home/koh/work/DeepBern-Nets/data/staliro/20241105_132530.json"
-        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_80.json"
-        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_20.json"
-        # self.data_path_test = "/home/koh/work/DeepBern-Nets/data/staliro/20241105_132534.json"
+        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_8_normalized_each.json"
+        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_2_normalized_each.json"
         self.train = train
         self.classes = [0]
         self.transform = transform
@@ -133,16 +131,17 @@ def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0)
     if not os.path.exists(root_dir):
         os.mkdir(root_dir)
 
-    data_path_train = "/home/koh/work/DeepBern-Nets/data/staliro/20241105_132530.json"
-    data_path_test = "/home/koh/work/DeepBern-Nets/data/staliro/20241105_132534.json"
+    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_8_normalized_each.json"
+    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_2_normalized_each.json"
 
-    min_value, max_value = compute_min_max([data_path_train, data_path_test])
+    # min_value, max_value = compute_min_max([data_path_train, data_path_test])
 
-    trans = transforms.Compose(
-        [
-            MinMaxNormalize1D(min_value, max_value),
-        ]
-    )
+    # trans = transforms.Compose(
+    #     [
+    #         MinMaxNormalize1D(min_value, max_value),
+    #     ]
+    # )
+    trans=None
 
     train_set = StaliroDataset(train=True, transform=trans)
     test_set = StaliroDataset(train=False, transform=trans)
