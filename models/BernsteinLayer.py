@@ -87,19 +87,31 @@ class BernsteinLayer(nn.Module):
         # return basis / diff
 
     def forward(self, x):
-        x = (x - self.input_bounds[..., 0]) / (
-            self.input_bounds[..., 1] - self.input_bounds[..., 0]
-        )
+        denom = self.input_bounds[..., 1] - self.input_bounds[..., 0] + 1e-8
+        x = (x - self.input_bounds[..., 0]) / denom
+        x = torch.clamp(x, 0.0, 1.0)
+        # x = (x - self.input_bounds[..., 0]) / (
+        #     self.input_bounds[..., 1] - self.input_bounds[..., 0]
+        # )
         basis = self.bern_basis(x)
         with torch.no_grad():
             basis_shape = torch.tensor(basis.shape)
-            basis_sum_to_one = torch.isclose(
-                torch.sum(basis, axis=-1).sum(), basis_shape[:-1].prod().float()
-            )
-            if not basis_sum_to_one:
+            basis_sum = basis.sum(axis=-1)
+            # basis_sum_to_one = torch.isclose(
+            #     torch.sum(basis, axis=-1).sum(), basis_shape[:-1].prod().float()
+            # )
+            # if not basis_sum_to_one:
+            if not torch.allclose(basis_sum, torch.ones_like(basis_sum), atol=1e-5):
+                print("Normalized x:", x)
+                print("Input Bounds:", self.input_bounds)
+                print("Denominator:", self.input_bounds[..., 1] - self.input_bounds[..., 0])
+                # Save the error input to a file for debugging
+                torch.save(x, '/home/koh/work/DeepBern-Nets/bad_x.pt')
+                torch.save(basis, '/home/koh/work/DeepBern-Nets/bad_basis.pt')
                 raise Exception(
                     f"Basis doesn't sum to 1, {torch.sum(basis,axis = -1).sum()}"
                 )
+            # print("Basis: {}".format(basis))
         out = basis * self.bern_coeffs
         out = out.sum(axis=-1)
         return out

@@ -20,6 +20,7 @@ import yaml
 import mlflow
 from test import test_robust, test_robust_regression
 from utils import ParamScheduler, RecursiveNamespace
+import wandb
 
 torch.manual_seed(123123)
 
@@ -608,6 +609,12 @@ def train_regression(
                             mlflow.log_metric(
                                 "Min mean_worst_case_deviation", best_model_loss, step=epoch + 1
                             )
+                    wandb.log({
+                        "epoch": epoch + 1,
+                        "train_loss": avg_loss,
+                        "test_loss": test_loss,
+                        "mean_worst_case_deviation": mean_worst_case_deviation,
+                    })
         if (epoch + 1) % 10 == 0 or (epoch + 1) == epochs:
             torch.save(
                 {
@@ -792,8 +799,16 @@ if __name__ == "__main__":
     #     lirpa_model = BoundedModule(model, dummy_input)
     #     model.train()
 
+    wandb.init(project="train", config={
+        "epochs": cfg.TRAIN.EPOCHS,
+        "learning_rate": init_lr,
+        "batch_size": cfg.TRAIN.BATCH_SIZE,
+        "hidden_layer": cfg.MODEL.HIDDEN_LAYERS,
+        "model_degree": cfg.MODEL.DEGREE,
+    })
+
     # criterion = nn.CrossEntropyLoss()
-    criterion = nn.MSELoss(reduction='sum')
+    criterion = nn.MSELoss()
     train_regression(
         model,
         trainloader,

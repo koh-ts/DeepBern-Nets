@@ -56,6 +56,7 @@ class FCModel(nn.Module):
                         + b
                     )
                     prev_bounds = torch.stack((lb, ub), dim=-1)
+                # print(prev_bounds)
                 y = layer(y)
 
             elif isinstance(layer, nn.BatchNorm1d):
@@ -88,6 +89,7 @@ class FCModel(nn.Module):
                     layer.input_bounds = prev_bounds
                 with torch.no_grad():
                     prev_bounds = layer.bern_bounds
+                    # print(prev_bounds)
                 y = layer(y)
 
         return y

@@ -6,19 +6,25 @@ from train import compute_robust_loss_regression
 import torch
 import time
 from tqdm import tqdm
+import json
 
 def objective(trial):
-    epochs = trial.suggest_int("epochs", 50, 100)
-    learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-1)
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256])
-    alpha = trial.suggest_uniform("alpha", 0.0, 1.0)
-    eps = trial.suggest_loguniform("eps", 1e-3, 1e-1)
+    epochs = trial.suggest_int("epochs", 100, 200)
+    # epochs = 50
+    # learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-1)
+    learning_rate = 0.0003
+    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+    # alpha = trial.suggest_uniform("alpha", 0.0, 1.0)
+    alpha = 0.76
+    # eps = trial.suggest_loguniform("eps", 1e-3, 1e-1)
+    eps = 0.008
     weight_decay = trial.suggest_loguniform("weight_decay", 1e-6, 1e-2)
-    n_layers = trial.suggest_int("n_layers", 2, 10)
-    hidden_size = trial.suggest_int("hidden_size", 32, 512)
-    lr_decay_rate = trial.suggest_uniform("lr_decay_rate", 0.8, 1.0)
-    lr_decay_start_epoch = trial.suggest_int("lr_decay_start_epoch", 10, 50)
-    model_degree = trial.suggest_int("model_degree", 8, 32)
+    n_layers = trial.suggest_int("n_layers", 2, 8)
+    hidden_size = trial.suggest_int("hidden_size", 256, 4096)
+    # lr_decay_rate = trial.suggest_uniform("lr_decay_rate", 0.8, 1.0)
+    lr_decay_rate = 0.84
+    lr_decay_start_epoch = trial.suggest_int("lr_decay_start_epoch", 30, 50)
+    model_degree = trial.suggest_int("model_degree", 2, 8)
 
     device = "cuda"
 
@@ -128,14 +134,23 @@ def objective(trial):
             best_val_loss = avg_val_loss
         
         epoch_e_time = time.perf_counter()
+        print(f"Epoch {epoch + 1}/{epochs}")
         print(f"Train Loss: {avg_epoch_loss:.4f}\n \
-            Train Robust Loss: {avg_epoch_robust_loss:.4f}\n \
-            Val Loss: {avg_val_loss:.4f}\n\
-            Val Robust Loss: {avg_val_robust_loss:.4f}\n")
+        Train Robust Loss: {avg_epoch_robust_loss:.4f}\n \
+        Val Loss: {avg_val_loss:.4f}\n\
+        Val Robust Loss: {avg_val_robust_loss:.4f}\n")
         epoch_times.append(epoch_e_time - epoch_s_time)
+        print(f"Epoch Time: {epoch_e_time - epoch_s_time:.2f}s\n")
 
     return best_val_loss
 
 if __name__ == "__main__":
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=100)
+    study = optuna.create_study(direction="minimize",
+                                storage='sqlite:///optuna_study.db',
+                                load_if_exists=True)
+    study.optimize(objective, n_trials=50)
+    trials = study.trials
+    trials_json = [trial.params for trial in trials]
+
+    with open('/home/koh/work/DeepBern-Nets/optuna_trials.json', 'w') as f:
+        json.dump(trials_json, f, indent=2) 

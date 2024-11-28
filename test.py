@@ -117,7 +117,7 @@ def test_robust(model, testloader, device="cuda", eps=0.0, mode="ibp", verbose=T
 def test_robust_regression(model, testloader, device="cuda", eps=0.0, mode="ibp", verbose=True):
     model.eval()
     model.to(device)
-    criterion = torch.nn.MSELoss()  # Use Mean Squared Error for regression
+    criterion = torch.nn.MSELoss()
     total_loss = 0.0
     total_samples = 0
     all_worst_case_deviations = []
