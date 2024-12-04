@@ -500,7 +500,12 @@ def train_regression(
             else:
                 robust_loss = torch.tensor(0)
             tr_loss = loss_fn(pred, y)
-            loss = alpha * tr_loss + (1 - alpha) * robust_loss
+            # loss = alpha * tr_loss + (1 - alpha) * robust_loss
+            # Compute L1 penalty (sum of absolute values of parameters)
+            l1_norm = sum(p.abs().sum() for p in model.parameters())
+            l1_lambda = cfg.TRAIN.L1_LAMBDA  # L1 regularization lambda
+            # Total loss with L1 regularization
+            loss = alpha * tr_loss + (1 - alpha) * robust_loss + l1_lambda * l1_norm
             epoch_loss += loss
             epoch_robust_loss += robust_loss
             loss.backward()
@@ -527,6 +532,10 @@ def train_regression(
                 },
                 step=epoch + 1,
             )
+        wandb.log({
+            "tr_loss": tr_loss,
+            "robust_loss": robust_loss,
+        })
 
         total_weights_norm = 0
         with torch.no_grad():
@@ -635,8 +644,7 @@ def train_regression(
 
 
 if __name__ == "__main__":
-    # num_inputs = 784
-    # num_outs = 10
+    torch.cuda.set_device(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str, help="Path to the config file")
     parser.add_argument(
@@ -801,10 +809,15 @@ if __name__ == "__main__":
 
     wandb.init(project="train", config={
         "epochs": cfg.TRAIN.EPOCHS,
-        "learning_rate": init_lr,
+        "learning_rate": cfg.TRAIN.INIT_LR,
+        "weight_decay": cfg.TRAIN.WEIGHT_DECAY,
+        "lr_decay_rate": cfg.TRAIN.LR_DECAY_RATE,
+        "lr_decay_start_epoch": cfg.TRAIN.LR_DECAY_START_EPOCH,
+        "l1_lambda": cfg.TRAIN.L1_LAMBDA,
         "batch_size": cfg.TRAIN.BATCH_SIZE,
         "hidden_layer": cfg.MODEL.HIDDEN_LAYERS,
         "model_degree": cfg.MODEL.DEGREE,
+        "run_name": cfg.EXPERIMENT.RUN_NAME,
     })
 
     # criterion = nn.CrossEntropyLoss()

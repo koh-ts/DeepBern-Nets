@@ -49,7 +49,7 @@ for i, file in enumerate(data_list):
         with open(os.path.join(data_path, file), 'r') as f:
             data = json.load(f)
             for d in data:
-                d_ = np.concatenate((np.array([d['init_cond']]), np.array(d['samples'], np.array([d['robustness']]))))
+                d_ = np.concatenate((np.array([d['init_cond']]), np.array(d['samples']), np.array([d['robustness']])))
                 feature_vec_train.append(d_)
     elif i < 240:
         with open(os.path.join(data_path, file), 'r') as f:
@@ -76,7 +76,7 @@ scaled_test = []
 
 for d in scaled_feature_train:
     scaled_init_cond = d[0]
-    scaled_samples = d[1:].tolist()
+    scaled_samples = d[1:-1].tolist()
     scaled_robustness = d[-1]
     scaled_item = {
         'init_cond': scaled_init_cond,
@@ -87,7 +87,7 @@ for d in scaled_feature_train:
 
 for d in scaled_feature_test:
     scaled_init_cond = d[0]
-    scaled_samples = d[1:].tolist()
+    scaled_samples = d[1:-1].tolist()
     scaled_robustness = d[-1]
     scaled_item = {
         'init_cond': scaled_init_cond,

@@ -8,8 +8,8 @@ import json
 
 class StaliroDataset(Dataset):
     def __init__(self, train=True, transform=None):
-        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_s.json"
-        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_s.json"
+        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_scaled.json"
+        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_scaled.json"
         self.train = train
         self.classes = [0]
         self.transform = transform
@@ -131,8 +131,8 @@ def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0)
     if not os.path.exists(root_dir):
         os.mkdir(root_dir)
 
-    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_s.json"
-    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_s.json"
+    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_scaled.json"
+    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_scaled.json"
 
     # min_value, max_value = compute_min_max([data_path_train, data_path_test])
 
