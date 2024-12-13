@@ -7,12 +7,13 @@ import glob
 import json
 
 class StaliroDataset(Dataset):
-    def __init__(self, train=True, transform=None):
-        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_scaled.json"
-        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_scaled.json"
+    def __init__(self, train=True, transform=None, type_num=0):
+        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
+        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
         self.train = train
         self.classes = [0]
         self.transform = transform
+        self.type = type_num
         if self.train:
             with open(self.data_path_train, 'r') as f:
                 self.data = json.load(f)
@@ -24,12 +25,20 @@ class StaliroDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        input_signal = [self.data[idx]['init_cond']] + self.data[idx]['samples']
-        if not self.transform == None:
-            input_signal = self.transform(torch.tensor(input_signal))
-        else:
-            input_signal = torch.tensor(input_signal)
-        return input_signal, torch.tensor([self.data[idx]['robustness']], dtype=torch.float32)
+        if self.type == 0:
+            input_signal = [self.data[idx]['init_cond']] + self.data[idx]['samples']
+            if not self.transform == None:
+                input_signal = self.transform(torch.tensor(input_signal))
+            else:
+                input_signal = torch.tensor(input_signal)
+            return input_signal, torch.tensor([self.data[idx]['robustness']], dtype=torch.float32)
+        elif self.type == 1:
+            states = self.data[idx]['states']
+            if not self.transform == None:
+                states = self.transform(torch.tensor(states))
+            else:
+                states = torch.tensor(states)
+            return states, torch.tensor([self.data[idx]['robustness']], dtype=torch.float32)
 
 class MinMaxNormalize1D(object):
     def __init__(self, min_value, max_value):
@@ -127,12 +136,12 @@ def load_cifar10(root_dir="./data", batch_size=64, flatten=True, samples_dist=0)
 
     return train_loader, test_loader
 
-def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0):
+def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0, type_num=0):
     if not os.path.exists(root_dir):
         os.mkdir(root_dir)
 
-    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_scaled.json"
-    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_scaled.json"
+    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
+    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
 
     # min_value, max_value = compute_min_max([data_path_train, data_path_test])
 
@@ -143,8 +152,8 @@ def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0)
     # )
     trans=None
 
-    train_set = StaliroDataset(train=True, transform=trans)
-    test_set = StaliroDataset(train=False, transform=trans)
+    train_set = StaliroDataset(train=True, transform=trans, type_num=type_num)
+    test_set = StaliroDataset(train=False, transform=trans, type_num=type_num)
 
     train_loader = torch.utils.data.DataLoader(
         dataset=train_set, batch_size=batch_size, shuffle=True, num_workers=4

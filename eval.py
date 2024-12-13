@@ -24,6 +24,76 @@ import wandb
 
 torch.manual_seed(123123)
 
+scaling_factor = {
+  "min": [
+    0.00012228660424362658,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -12.947212219238281
+  ],
+  "max": [
+    7.999964949027126,
+    8.48736771478237,
+    8.973167500638938,
+    9.452481768993627,
+    9.925128063251766,
+    10.394770541981519,
+    10.811635473914432,
+    11.293867117582742,
+    11.773110825827766,
+    12.248974776305648,
+    12.721085244405165,
+    13.189033979699555,
+    13.644411232334877,
+    14.073094462889278,
+    14.464576232984038,
+    14.811990889865044,
+    15.15830120608507,
+    15.510364709758887,
+    15.872620274371885,
+    16.34860212117229,
+    16.775598523290164,
+    17.267232982560255,
+    17.75560763595966,
+    18.23467056595263,
+    18.698969207133995,
+    19.14366880987464,
+    19.56455244032151,
+    19.95802098039758,
+    20.321093127801905,
+    20.65140539600957,
+    20.94721211427172,
+    7.999631881713867
+  ]
+}
 
 def eval_only(
     model,
@@ -58,28 +128,29 @@ def eval_only(
     print(f"Worst loss in test: {worst_loss_test}")
 
 if __name__ == "__main__":
-    torch.cuda.set_device(1)
-    # device = "cuda:1"
-    device = "cpu"
+    torch.cuda.set_device(2)
+    device = "cuda:2"
+    # device = "cpu"
     min_ = -12.947212219238281
     max_ = 7.999631881713867
     torch.manual_seed(123)
     torch.cuda.manual_seed(123)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True
-    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/optuna/optuna_normalized_7/checkpoint_best_model.pth')
-    model = FCModel([17,512,512,512,512,1], 4).to(device)
-    input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(17)]).to(device)
+    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/state_robust/state_robust_02/checkpoint_best_model.pth')
+    input_dimension = len(scaling_factor['min'][:-1])
+    model = FCModel([input_dimension,1024,1024,1024,1024,1], 8).to(device)
+    input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
     model.load_state_dict(params['model_state_dict'])
     model.input_bounds = input_bounds_
 
     is_FC_model = True
     batch_size = 512
     trainloader, testloader = load_staliro(
-        batch_size=batch_size, flatten=is_FC_model
+        batch_size=batch_size, flatten=is_FC_model, type_num=1
     )
     _, benchmark_testloader = load_staliro(
-        batch_size=batch_size, flatten=is_FC_model
+        batch_size=batch_size, flatten=is_FC_model, type_num=1
     )
 
     print("==>>> Trainig set size = {}".format(len(trainloader.dataset)))

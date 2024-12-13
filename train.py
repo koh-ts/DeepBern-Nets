@@ -644,7 +644,6 @@ def train_regression(
 
 
 if __name__ == "__main__":
-    torch.cuda.set_device(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str, help="Path to the config file")
     parser.add_argument(
@@ -677,6 +676,8 @@ if __name__ == "__main__":
         cfg.TRAIN.EPOCHS = args.epochs
     degree = cfg.MODEL.DEGREE
     device = cfg.TRAIN.DEVICE
+    cuda_num = cfg.TRAIN.CUDA_NUM
+    torch.cuda.set_device(cuda_num)
     mlflow_enable = args.mlflow
     # CONFIG = {'checkpoint_path' : "cifar_BN"}
     BASE_DIR = os.path.join(
@@ -715,12 +716,20 @@ if __name__ == "__main__":
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
         )
     elif cfg.DATASET == "staliro":
-        trainloader, testloader = load_staliro(
-            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
-        )
-        _, benchmark_testloader = load_staliro(
-            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model
-        )
+        if cfg.EXPERIMENT.NAME == "state_robust":
+            trainloader, testloader = load_staliro(
+                batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, type_num=1
+            )
+            _, benchmark_testloader = load_staliro(
+                batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, type_num=1
+            )
+        else:
+            trainloader, testloader = load_staliro(
+                batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, type_num=0
+            )
+            _, benchmark_testloader = load_staliro(
+                batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, type_num=0
+            )
 
     print("==>>> Trainig set size = {}".format(len(trainloader.dataset)))
     print("==>>> Test set size = {}".format(len(testloader.dataset)))
@@ -807,7 +816,9 @@ if __name__ == "__main__":
     #     lirpa_model = BoundedModule(model, dummy_input)
     #     model.train()
 
-    wandb.init(project="train", config={
+    project_name = cfg.EXPERIMENT.NAME
+
+    wandb.init(project="state_robust", config={
         "epochs": cfg.TRAIN.EPOCHS,
         "learning_rate": cfg.TRAIN.INIT_LR,
         "weight_decay": cfg.TRAIN.WEIGHT_DECAY,

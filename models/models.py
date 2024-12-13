@@ -57,6 +57,11 @@ class FCModel(nn.Module):
                     )
                     prev_bounds = torch.stack((lb, ub), dim=-1)
                 # print(prev_bounds)
+                if torch.isnan(ub).any() or torch.isnan(lb).any():
+                    print("In model.py")
+                    print(f"Layer: {i}")
+                    print(f"Input Bounds: {self.input_bounds}")
+                    print(f"Prev Bounds: {prev_bounds}")
                 y = layer(y)
 
             elif isinstance(layer, nn.BatchNorm1d):

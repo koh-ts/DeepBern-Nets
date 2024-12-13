@@ -1,0 +1,65 @@
+TRAIN:
+  EPOCHS: 50
+  BATCH_SIZE: 512
+  INIT_LR: 0.00005473786728348335
+  WEIGHT_DECAY: 0.0006725280186165488
+  # WEIGHT_DECAY: 0.000003231274653223999
+  OPTIMIZER: AdamW
+  LR_DECAY_RATE: 0.8402566198246845
+  LR_DECAY_START_EPOCH: 37
+  LR_DECAY_METHOD: EXP
+  DEVICE: cuda:2
+  CUDA_NUM: 2
+  # DEVICE: cpu
+  # MODE: clean
+  MODE: cert
+  L1_LAMBDA: 0.00000015101147882906
+
+TEST:
+  BATCH_SIZE: 512
+  MODE: adv
+  # MODE: clean
+  IBP: True
+  BERN_IBP: True
+  # PGD: True
+  PGD: False
+  DEVICE: cuda:2
+  # DEVICE: cpu
+
+ROBUSTNESS:
+  # ENABLE: False
+  ENABLE: True
+  BOUNDING_METHOD: bern
+  MIN_ALPHA: 0.0
+  MAX_ALPHA: 0.9
+  MIN_BETA: 0.0
+  MAX_BETA: 0.0
+  WARMUP_EPOCHS: 0
+  ROBUST_TRAINING_START_EPOCH: 0
+  ROBUST_TRAINING_LAST_EPOCH: 100
+  EPS_START_EPOCH: 1
+  EPS_LAST_EPOCH: 1
+  MAX_EPS: 0.1
+  MIN_EPS: 0.1
+  TEST_EPS: 0.1
+  TEST_EVERY_N_EPOCH : 1
+
+MODEL:
+  TYPE: FC
+  HIDDEN_LAYERS: [1024,1024,1024,1024]
+  ACTIVATION: bern
+  DEGREE: 8
+  
+DATASET: staliro
+
+CHECKPOINT:
+  DIR: experiments/staliro/
+  LOAD: False
+  # LOAD: True
+  # PATH_TO_CKPT: "/home/koh/work/experiments/staliro/optuna/optuna_normalized/checkpoint_best_model.pth"
+  
+
+EXPERIMENT:
+  NAME: state_robust
+  RUN_NAME: state_robust_03
+  DESCRIPTION: Training of FCNNb DeepBern-Nets on staliro dataset. Clean training (without adversarial examples or certified training)"

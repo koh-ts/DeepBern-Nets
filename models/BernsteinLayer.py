@@ -28,13 +28,20 @@ class BernsteinLayer(nn.Module):
         return torch.concat((lb, ub), dim=-1)
 
     def subinterval_bounds(self, bounds):
+        # There is a chance that the bounds max is exactly 1.0, which will cause a nan in the computation
+        # Check the bounds and if the max is 1.0, subtract a small value from it
+        # the dimension of the bounds
         """Compute Bernstein coeffs for interval [alpha,beta]"""
         in_bounds = self.input_bounds.unsqueeze(0)
+        denom = in_bounds[..., 1:] - in_bounds[..., 0:1]
+        epsilon = 1e-8
+        denom[denom == 0.0] = epsilon
         bounds = (bounds - in_bounds[..., 0:1]) / (
-            in_bounds[..., 1:] - in_bounds[..., 0:1]
+            denom
         )
         alpha = bounds[..., 0].unsqueeze(-1)
         beta = bounds[..., 1].unsqueeze(-1)
+        beta[beta == 0.0] = epsilon
         zero_to_beta_coeffs = torch.zeros(
             bounds.shape[0],
             *self.in_shape,
@@ -68,6 +75,13 @@ class BernsteinLayer(nn.Module):
         new_coeffs_lb_ub = alpha_to_beta_coeffs[..., -2]
         lb = new_coeffs_lb_ub.min(axis=-1, keepdim=True)[0]
         ub = new_coeffs_lb_ub.max(axis=-1, keepdim=True)[0]
+        if torch.isnan(ub).any() or torch.isnan(lb).any():
+            print(f"Alpha: {alpha}, Beta: {beta}")
+            print(f"Bounds: {bounds}")
+            print(f"Input Bounds: {self.input_bounds}")
+            # print(f"Bernstein Coeffs: {self.bern_coeffs}")
+            # print(f"Zero to Beta Coeffs: {zero_to_beta_coeffs}")
+            # print(f"Alpha to Beta Coeffs: {alpha_to_beta_coeffs}")
         return torch.concat((lb, ub), -1)
 
     def binom(self, n, k):
@@ -83,6 +97,12 @@ class BernsteinLayer(nn.Module):
             * (y) ** self._basis_indices
             * (1 - y) ** (self._deg_tensor - self._basis_indices)
         )
+        if torch.isnan(x).any() or torch.isnan(basis).any():
+            print(f"X: {x}")
+            print(f"Basis: {basis}")
+            print(f"nCk: {self.nCk}")
+            print(f"Basis Indices: {self._basis_indices}")
+            print(f"Degree: {self._deg_tensor}")
         return basis
         # return basis / diff
 
@@ -106,8 +126,6 @@ class BernsteinLayer(nn.Module):
                 print("Input Bounds:", self.input_bounds)
                 print("Denominator:", self.input_bounds[..., 1] - self.input_bounds[..., 0])
                 # Save the error input to a file for debugging
-                torch.save(x, '/home/koh/work/DeepBern-Nets/bad_x.pt')
-                torch.save(basis, '/home/koh/work/DeepBern-Nets/bad_basis.pt')
                 raise Exception(
                     f"Basis doesn't sum to 1, {torch.sum(basis,axis = -1).sum()}"
                 )
