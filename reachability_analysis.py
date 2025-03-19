@@ -8,6 +8,9 @@ sys.path.append('/home/koh/work/matiec_rampo/examples/misc')
 sys.path.append('/home/koh/work/staliro')
 print(sys.path)
 from tree import *
+from graphviz import *
+
+import time
 
 # Scaling factor
 # scaling_factor = {
@@ -144,9 +147,6 @@ device = 'cpu'
 # torch.cuda.set_device(4)
 
 def main():
-    # tree = HistoryTrie(height=4, num_child=4)
-    min_ = scaling_factor['min'][-1]
-    max_ = scaling_factor['max'][-1]
     torch.manual_seed(123)
     torch.cuda.manual_seed(123)
     torch.backends.cudnn.enabled=False
@@ -161,11 +161,63 @@ def main():
     with open('/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json', 'r') as f:
         data = json.load(f)
     init_bounds = torch.tensor([[0.0, 1.0]] * input_dimension).to(device)
-    whole_bounds = model.forward_subinterval(init_bounds)
-    whole_bounds_ = rescaling_output(whole_bounds.squeeze(0).squeeze(0))
-    print('Entire bound: {}'.format(whole_bounds_.tolist()))
-    ok_cnt = 0
-    ng_cnt = 0
+    entire_bounds = model.forward_subinterval(init_bounds)
+    entire_bounds_ = rescaling_output(entire_bounds.squeeze(0).squeeze(0))
+    print('Entire bound: {}'.format(entire_bounds_.tolist()))
+
+    t = HistoryTrie(height=4, num_child=4)
+    G = Digraph(format='png')
+    G.attr('node', shape='circle')
+    G.node('root', label='root')
+    tree = t.root
+    path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
+    q = []
+    safe_range = []
+    unsafe_range = []
+    red_range = []
+    yellow_range = []
+    for c in tree.children:
+      q.append(c)
+
+    start = time.time()
+    
+    while q:
+      node = q.pop(0)
+      path = node.path
+      tmp = []
+      for i, p in enumerate(path):
+        if i == 2:
+          tmp += [path_table[p] for _ in range(7)]
+        else:
+          tmp += [path_table[p] for _ in range(8)]
+      tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+      input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
+      bound = model.forward_subinterval(input_bound)
+      bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
+      if negative_value_check(bound_):
+        node.visited = True
+        for c in node.children:
+          q.append(c)
+      if node.height == 0:
+        if negative_value_check(bound_):
+
+          if red_yellow_check(bound_):
+             red_range.append(path)
+          else:
+             yellow_range.append(path)
+          print('Path: {}'.format(path))
+          print('Output bound: {}'.format(bound_.tolist()))
+          node.visited = True
+        else:
+          safe_range.append(path)
+    
+        with open('/home/koh/work/DeepBern-Nets/safe_ranges.json', 'w') as f:
+            json.dump(safe_range, f)
+        with open('/home/koh/work/DeepBern-Nets/red_ranges.json', 'w') as f:
+            json.dump(red_range, f)
+        with open('/home/koh/work/DeepBern-Nets/yellow_ranges.json', 'w') as f:
+            json.dump(yellow_range, f)
+    
     # for i, d in enumerate(data):
     #     if rescaling_output(d['robustness']) < 0:
     #         idx = i
@@ -194,44 +246,7 @@ def main():
     #             print('Inference: {}'.format(rescaling_output(y).tolist()[0]))
     #             print('Label: {}'.format(rescaling_output(label)))
     #             print('Incorrect')
-            # print('=======================\n')
-
-    t = HistoryTrie(height=4, num_child=4)
-    tree = t.root
-    path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
-    q = []
-    safe_range = []
-    unsafe_range = []
-    for c in tree.children:
-      q.append(c)
-    while q:
-      node = q.pop(0)
-      path = node.path
-      tmp = []
-      for i, p in enumerate(path):
-        if i == 2:
-          tmp += [path_table[p] for _ in range(7)]
-        else:
-          tmp += [path_table[p] for _ in range(8)]
-      tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
-      input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-      bound = model.forward_subinterval(input_bound)
-      bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-      if negative_value_check(bound_):
-        node.visited = True
-        for c in node.children:
-          q.append(c)
-      if node.height == 0:
-        if negative_value_check(bound_):
-          print('Path: {}'.format(path))
-          print('Output bound: {}'.format(bound_.tolist()))
-          unsafe_range.append(path)
-          node.visited = True
-        else:
-          safe_range.append(path)
-    
-    
-      
+            # print('=======================\n')  
 
     # input_bounds = torch.tensor([[0.0,5.0] for _ in range(8)] + [[0.0, 12.0] for _ in range(31 - 8)]).to(device)
     # t0p0 = rescaling_output(model.forward_subinterval(scaling_input_bound(input_bounds)))
@@ -248,13 +263,33 @@ def main():
     # input_bounds = torch.tensor([[10.0,10.1] for _ in range(8)] + [[10.0, 10.1] for _ in range(31 - 8)]).to(device)
     # t0p3 = rescaling_output(model.forward_subinterval(scaling_input_bound(input_bounds)))
     # print(negative_value_check(t0p3))
-
-    with open('/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/min_max.json', 'r') as f:
-        ranges = json.load(f)
+    end = time.time()
+    print('Time: {}'.format(end - start))
+    # with open('/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/min_max.json', 'r') as f:
+    #     ranges = json.load(f)
 
     # print('Correct: {}\nIncorrect: {}'.format(ok_cnt, ng_cnt))
-    print('aaaa')
-
+    print('# of safe range: {}'.format(len(safe_range)))
+    print('# of red range: {}'.format(len(red_range)))
+    print('# of yellow range: {}'.format(len(yellow_range)))
+    for c in t.root.children:
+        G.node(str(c.path), label=str(c.path))
+        G.edge('root', str(c.path))
+        for cc in c.children:
+            G.node(str(cc.path), label=str(cc.path))
+            G.edge(str(c.path), str(cc.path))
+            for ccc in cc.children:
+                G.node(str(ccc.path), label=str(ccc.path))
+                G.edge(str(cc.path), str(ccc.path))
+                for cccc in ccc.children:
+                    G.node(str(cccc.path), label=str(cccc.path))
+                    G.edge(str(ccc.path), str(cccc.path))
+    for r in red_range:
+        G.node(str(r), label=str(r), style='filled', fillcolor='red')
+    for y in yellow_range:
+        G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
+    G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
+    print('Done')
     # {"init_cond": 0.5034891637283067,
     # "samples": [0.9306942060723306, 0.9375638754635564, 0.2775548965217323, 0.21546631017574988, 0.5303836078887472, 0.036676176324594086, 0.6726495645096164, 0.9281323163040858, 0.4377231715260603, 0.876642879734375, 0.07307733003533934, 0.8026005806972524, 0.6791905662337453, 0.4266436088407155, 0.4770551447887879, 0.6094008948987218],
     # "robustness": 0.5404148848784927},
@@ -302,6 +337,11 @@ def rescaling_element(x_i, i):
 
 def negative_value_check(b):
   if torch.any(b < 0):
+    return True
+  return False
+
+def red_yellow_check(b):
+  if b[1] < 0.0:
     return True
   return False
 

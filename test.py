@@ -175,6 +175,7 @@ if __name__ == "__main__":
         "--device", type=str, default="cuda", help="Device to use for training"
     )
     parser.add_argument("--eps", type=float, help="Epsilon for PGD attack")
+    parser.add_argument("--data_path", default=None, type=str, help="Path to the data")
 
     args = parser.parse_args()
     # assert len(sys.argv) == 2, "Please provide a YAML configuration file as argument"
@@ -198,11 +199,19 @@ if __name__ == "__main__":
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, samples_dist=1
         )
     elif cfg.DATASET == "staliro":
-        trainloader, testloader = load_staliro(
+        if args.data_path is not None:
+            trainloader, testloader = load_staliro(
+            batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, samples_dist=1, data_path_test=args.data_path, type_num=1
+        )
+        else:
+            trainloader, testloader = load_staliro(
             batch_size=cfg.TRAIN.BATCH_SIZE, flatten=is_FC_model, samples_dist=1
         )
 
     num_outs = len(trainloader.dataset.classes)
+    # with open("/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json", "r") as f:
+    #     import json
+    #     data_ = json.load(f)
     in_shape = torch.tensor(next(iter(trainloader))[0][0].shape)
     if cfg.MODEL.TYPE == "FC":
         layer_sizes = [in_shape.item()] + cfg.MODEL.HIDDEN_LAYERS + [num_outs]

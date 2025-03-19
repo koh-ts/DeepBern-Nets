@@ -1,5 +1,5 @@
-import torchvision.datasets as datasets
-import torchvision.transforms as transforms
+# import torchvision.datasets as datasets
+# import torchvision.transforms as transforms
 import torch
 from torch.utils.data import Dataset
 import os
@@ -7,9 +7,15 @@ import glob
 import json
 
 class StaliroDataset(Dataset):
-    def __init__(self, train=True, transform=None, type_num=0):
-        self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
-        self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
+    def __init__(self, train=True, transform=None, type_num=0, data_path_train=None, data_path_test=None):
+        if data_path_train is None:
+            self.data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
+        else:
+            self.data_path_train = data_path_train
+        if data_path_test is None:
+            self.data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
+        else:
+            self.data_path_test = data_path_test
         self.train = train
         self.classes = [0]
         self.transform = transform
@@ -136,12 +142,20 @@ def load_cifar10(root_dir="./data", batch_size=64, flatten=True, samples_dist=0)
 
     return train_loader, test_loader
 
-def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0, type_num=0):
+def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0, type_num=0, data_path_train=None, data_path_test=None):
     if not os.path.exists(root_dir):
         os.mkdir(root_dir)
 
-    data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
-    data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
+    train = True
+
+    if data_path_train is None:
+        # data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
+        data_path_train = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_200_state_robust.json"
+        train = False
+
+    if data_path_test is None:
+        # data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
+        data_path_test = "/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data/done/data_40_state_robust.json"
 
     # min_value, max_value = compute_min_max([data_path_train, data_path_test])
 
@@ -152,8 +166,8 @@ def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0,
     # )
     trans=None
 
-    train_set = StaliroDataset(train=True, transform=trans, type_num=type_num)
-    test_set = StaliroDataset(train=False, transform=trans, type_num=type_num)
+    train_set = StaliroDataset(train=train, transform=trans, type_num=type_num, data_path_train=data_path_train)
+    test_set = StaliroDataset(train=train, transform=trans, type_num=type_num, data_path_test=data_path_test)
 
     train_loader = torch.utils.data.DataLoader(
         dataset=train_set, batch_size=batch_size, shuffle=True, num_workers=4
