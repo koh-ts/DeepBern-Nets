@@ -5,25 +5,30 @@ import numpy as np
 import json
 import sys
 sys.path.append('/home/koh/work/matiec_rampo/examples/misc')
-sys.path.append('/home/koh/work/staliro')
-sys.path.insert(0, '/home/koh/miniconda3/envs/deepbern/lib/python3.9/site-packages')
-sys.path.append('/home/koh/work')
+# sys.path.append('/home/koh/work/staliro')
+# sys.path.insert(0, '/home/koh/work/psy-taliro/src')
+# sys.path.insert(0, '/home/koh/miniconda3/envs/deepbern/lib/python3.9/site-packages')
+# sys.path.append('/home/koh/work')
 print(sys.path)
 from tree import *
 from graphviz import *
 
-from staliro.core.interval import Interval
-from staliro.core.model import BasicResult, Model, ModelInputs, ModelResult, Trace
-from staliro.core.result import best_eval, best_run, worst_run, worst_eval, Evaluation
-from staliro.core.signal import Signal
+from staliro import Sample, SignalInput, TestOptions, staliro
+from staliro.models import Model, Result
 from staliro.optimizers import DualAnnealing
-from staliro.options import Options, SignalOptions
-from staliro.specifications import TLTK, RTAMTDense
-# from staliro.staliro import simulate_model, staliro, staliro_
-from staliro.staliro import simulate_model, staliro
+from staliro.specifications import rtamt
 
-sys.path.append('/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate')
-from psy_taliro_tankcontrol_flowrate import TankControlFlowRate, path_extraction
+# from staliro import models, optimizers, specifications
+# from staliro.options import TestOptions
+# from staliro.staliro import staliro
+
+# from staliro.core.result import worst_run, worst_eval
+# from staliro.options import Options, SignalOptions
+# from staliro.specifications import TLTK, RTAMTDense
+# from staliro.staliro import simulate_model, staliro, staliro_
+# from staliro.staliro import simulate_model, staliro
+
+# sys.path.append('/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate')
 
 try:
     import matlab
@@ -107,6 +112,74 @@ scaling_factor = {
   ]
 }
 
+class TankControlFlowRate(Model[list[float], None]):
+    MODEL_NAME = "tankcontrol_flowrate"
+
+    def __init__(self) -> None:
+        if not _has_matlab:
+            raise RuntimeError(
+                "Simulink support requires the MATLAB Engine for Python to be installed"
+            )
+
+        # engine = matlab.engine.start_matlab()
+        engine = matlab.engine.connect_matlab(matlab.engine.find_matlab()[0])
+        # engine.addpath("examples")
+
+        is_loaded = engine.bdIsLoaded(self.MODEL_NAME)
+        if not is_loaded:
+            engine.open_system(self.MODEL_NAME, nargout=0)
+        engine.set_param(self.MODEL_NAME + '/open_loop', 'Value', '1', nargout=0)
+
+        model_opts = engine.simget(self.MODEL_NAME)
+
+        self.sampling_step = 0.2
+        self.engine = engine
+        self.model_opts = engine.simset(model_opts, "SaveFormat", "Array")
+
+    def simulate(self, sample: Sample) -> Result[list[float], None]:
+        tstart, tend = sample.signals.tspan
+        duration = tend - tstart
+        sim_t = matlab.double([0, tend])
+        n_times = duration // self.sampling_step
+        signal_times = np.linspace(tstart, tend, num=int(n_times))
+        signal_values = np.array(
+            [[signal.at_time(t) for t in signal_times] for signal in sample.signals]
+        )
+        model_input = matlab.double(np.row_stack((signal_times, signal_values)).T.tolist())
+
+        timestamps, _, data = self.engine.sim(
+            self.MODEL_NAME, sim_t, self.model_opts, model_input, nargout=3
+        )
+
+        times: list[float] = np.array(timestamps).flatten().tolist()
+        states: list[list[float]] = list(data)
+
+        return Result(times=times, states=states, extra=None)
+
+def path_extraction(best_result):
+    # result.runs[0].history.sort(key=lambda x: x.cost)
+    # best_sample = worst_eval(worst_run(result)).sample
+    # best_result = simulate_model(model, options, best_sample)
+    path = []
+
+    # This works only for the current setting: cp = 10, sim_time = 30
+    extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
+    # This works only for the current setting: cp = 4, sim_time = 30
+    # extract_point_list = [0, 8, 15, 23]
+
+    for p in extract_point_list:
+        if best_result.trace.states[p][0] >= ranges['TankHeight'][0][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][0][1]:
+            path.append(0)
+        elif best_result.trace.states[p][0] >= ranges['TankHeight'][1][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][1][1]:
+            path.append(1)
+        elif best_result.trace.states[p][0] >= ranges['TankHeight'][2][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][2][1]:
+            path.append(2)
+        elif best_result.trace.states[p][0] >= ranges['TankHeight'][3][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][3][1]:
+            path.append(3)
+        else:
+            path.append(-1)
+    return path
+
 # min max scaling: x' = (x - min) / (max - min)
 # reverse scaling x = x' * (max - min) + min
 
@@ -121,16 +194,16 @@ ranges = {
 }
 phi = "(always[0,30] (TankHeight <= 8))"
 # specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-specification = RTAMTDense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
+specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
 # specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-optimizer = DualAnnealing()
-signals = [
-    SignalOptions(control_points=[(0, 1)] * 10),
-    SignalOptions(control_points=[(0, 1)] * 10),
-    SignalOptions(control_points=[(30, 100)] * 10),
-    SignalOptions(control_points=[(30, 100)] * 10), 
-]
-options = Options(runs=1, iterations=100, interval=(0, 30), signals=signals)
+optimizer = DualAnnealing(min_cost=0.0)
+signals = {
+    "InValve": SignalInput(control_points=[(0, 1)] * 10),
+    "OutValve": SignalInput(control_points=[(0, 1)] * 10),
+    "InValveRate": SignalInput(control_points=[(30, 100)] * 10),
+    "OutValveRate": SignalInput(control_points=[(30, 100)] * 10), 
+}
+options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
@@ -166,14 +239,14 @@ def main():
     # q.append(tree)
     # for c in tree.children:
     #   q.append(c)
+    start = time.time()
 
     res = staliro(sim_model, specification, optimizer, options)
-    res.runs[0].history.sort(key=lambda x: x.cost)
-    best_sample = worst_eval(worst_run(res)).sample
-    best_result = simulate_model(sim_model, options, best_sample)
+    res[0].evaluations.sort(key=lambda x: x.cost)
+    best_sample = res[0].evaluations[0].sample.values
+    best_result = res[0].evaluations[0].extra
     path = path_extraction(best_result)
 
-    start = time.time()
     node = t.root
     # node = node.children[path[0]]
     bound_ = [-0.1, 0.1]
@@ -197,6 +270,7 @@ def main():
           else:
             if not node.children[path[j]].visited:
               node = node.children[path[j]]
+            # What if the child node is visited?
           for i, p in enumerate(node.path):
             tmp_val = path_table[p]
             # For cp == 10
@@ -230,7 +304,7 @@ def main():
       falsified = False
       while not falsified:
         res, best_result = falsification_with_actual_model(node)
-        falsified = res.runs[0].history[0].cost < 0.0
+        falsified = res[0].evaluations[0].cost < 0.0
         if falsified:
           if node.height == 0:
             # If the node is a leaf node and it's falsified, we store this node as a potential vulnerable node
@@ -243,6 +317,12 @@ def main():
             # This path should not include the visited children nodes because we exclude them in the falsification attemp by adding the extra constraints
             path = path_extraction(best_result)
             l = len(node.path)
+            if node.children[path[l]].visited:
+              # for c in node.children:
+              #   if not c.visited:
+              #     node = c
+              
+              
             node = node.children[path[l]]
             break
         else:
@@ -250,6 +330,8 @@ def main():
           node.visited = True
           if node == t.root:
             break
+          elif node.height == 0:
+            not_falsified_list.append([node.path, res, best_result])
           node = node.parent
       
       if node == t.root:
@@ -347,25 +429,32 @@ def main():
     # for y in yellow_range:
     #     G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
     # G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
+    end = time.time()
+    print('Time: {}'.format(end - start))
+    print('safe range: {}'.format(safe_range))
+    print('red range: {}'.format(red_range))
+    print('falseified list: {}'.format(falsified_list))
+    print('not falsified list: {}'.format(not_falsified_list))
     print('Done')
 
 def falsification_with_actual_model(node):
   path = node.path
   num_cp = node.height + len(node.path)
-  sim_time = options.interval.upper - options.interval.lower
+  tstart, tend = options.tspan
+  sim_time = tend - tstart
   interval = sim_time / num_cp
   cp_array = [i * interval for i in range(num_cp)]
   Phi = "(G[0,30] (TankHeight <= 8))"
   phi = ''
-  epsilon = 0.1
+  epsilon = 0.01
   for i, p in enumerate(path):
-    phi += '(F[{}, {}] (TankHeight >= {} /\ TankHeight <= {}))' \
+    phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
             ranges['TankHeight'][p][0], ranges['TankHeight'][p][1])
     if i != len(path) - 1:
-        phi += ' /\ '
+        phi += ' and '
   if phi != '':
-    phi = Phi + ' \/ ! (' + phi + ')'
+    phi = Phi + ' or ! (' + phi + ')'
   else:
     phi = Phi
 
@@ -382,29 +471,29 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(F[{}, {}] (TankHeight >= {} /\ TankHeight <= {}))' \
+      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
             ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
       if k != len(pruning_children) - 1:
-        extra_phi += ' \/ '
-    phi += ' \/ (' + extra_phi + ')'
+        extra_phi += ' or '
+    phi += ' or (' + extra_phi + ')'
 
   print('Searching Node: {}, Phi: {}'.format(path, phi))
 
   # spec = TLTK(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
-  spec = RTAMTDense(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
+  spec = rtamt.parse_dense(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
   res = staliro(sim_model, spec, optimizer, options)
-  res.runs[0].history.sort(key=lambda x: x.cost)
-  best_sample = worst_eval(worst_run(res)).sample
-  best_result = simulate_model(sim_model, options, best_sample)
-  if res.runs[0].history[0].cost < 0:
-      # red_falsified.append([d, res.runs[0].history[0].cost])
+  res[0].evaluations.sort(key=lambda x: x.cost)
+  best_sample = res[0].evaluations[0].sample.values
+  best_result = res[0].evaluations[0].extra
+  if res[0].evaluations[0].cost < 0:
+      # red_falsified.append([d, res[0].evaluations[0].cost])
       print('Falsified')
-      print('Cost: {}'.format(res.runs[0].history[0].cost))
+      print('Cost: {}'.format(res[0].evaluations[0].cost))
   else:
-      # red_not_falsified.append([d, res.runs[0].history[0].cost])
+      # red_not_falsified.append([d, res[0].evaluations[0].cost])
       print('Not falsified')
-      print('Cost: {}'.format(res.runs[0].history[0].cost))
+      print('Cost: {}'.format(res[0].evaluations[0].cost))
   return res, best_result
 
 def scaling_input(x):
