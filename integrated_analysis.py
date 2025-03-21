@@ -317,7 +317,7 @@ def main():
             # This path should not include the visited children nodes because we exclude them in the falsification attemp by adding the extra constraints
             path = path_extraction(best_result)
             l = len(node.path)
-            if node.children[path[l]].visited:
+            # if node.children[path[l]].visited:
               # for c in node.children:
               #   if not c.visited:
               #     node = c
@@ -446,7 +446,7 @@ def falsification_with_actual_model(node):
   cp_array = [i * interval for i in range(num_cp)]
   Phi = "(G[0,30] (TankHeight <= 8))"
   phi = ''
-  epsilon = 0.01
+  epsilon = 0.0
   for i, p in enumerate(path):
     phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
@@ -471,7 +471,7 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
+      extra_phi += '(G[{}, {}] !(TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
             ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
       if k != len(pruning_children) - 1:
