@@ -250,6 +250,7 @@ def main():
     node = t.root
     # node = node.children[path[0]]
     bound_ = [-0.1, 0.1]
+    v_count = 0
     while t.root.visited == False:
       # Here , we do the NN reachability analysis
       # The result can be the following patterns
@@ -263,6 +264,8 @@ def main():
 
         # As long as the NN reachability result is yellow, we need to go down to the leaf node
         if bound_[0] < 0.0 and bound_[1] > 0.0:
+          yellow_range.append((node.path, v_count))
+          v_count += 1
           tmp = []
           if node.height == 0:
             # This is when the node is a leaf and still yellow result
@@ -287,10 +290,12 @@ def main():
         else:
           if bounds_[0] > 0.0:
             # This means that the entire output bound is positive (white)
-            safe_range.append(node.path)
+            safe_range.append((node.path, v_count))
+            v_count += 1
           else:
             # This means that the entire output bound is negative (red)
-            red_range.append(node.path)
+            red_range.append((node.path, v_count))
+            v_count += 1
           node.visited = True
           node = node.parent
 
@@ -308,7 +313,8 @@ def main():
         if falsified:
           if node.height == 0:
             # If the node is a leaf node and it's falsified, we store this node as a potential vulnerable node
-            falsified_list.append([node.path, res, best_result])
+            falsified_list.append([node.path, res, best_result, v_count])
+            v_count += 1
             node.visited = True
             node = node.parent
             falsified = False
@@ -321,8 +327,6 @@ def main():
               # for c in node.children:
               #   if not c.visited:
               #     node = c
-              
-              
             node = node.children[path[l]]
             break
         else:
@@ -331,7 +335,8 @@ def main():
           if node == t.root:
             break
           elif node.height == 0:
-            not_falsified_list.append([node.path, res, best_result])
+            not_falsified_list.append([node.path, res, best_result, v_count])
+            v_count += 1
           node = node.parent
       
       if node == t.root:
@@ -430,12 +435,67 @@ def main():
     #     G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
     # G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
     end = time.time()
+    # print('Time: {}'.format(end - start))
+    # print('safe range: {}'.format(safe_range))
+    # print('red range: {}'.format(red_range))
+    # print('falsified list: {}'.format(falsified_list))
+    # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
-    print('safe range: {}'.format(safe_range))
-    print('red range: {}'.format(red_range))
-    print('falseified list: {}'.format(falsified_list))
-    print('not falsified list: {}'.format(not_falsified_list))
+
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/not_falsified.json')
+    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/safe_ranges.json')
+    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/red_ranges.json')
+    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/yellow_ranges.json')
     print('Done')
+
+def save_falsification_result(raw_data, filename):
+  path_list = []
+  cost_list = []
+  sample_list = []
+  states_list = []
+  times_list = []
+  v_count_list = []
+
+  for r in raw_data:
+    result = r[1][0]
+    best_res = result.evaluations[0]
+    best_sample = best_res.sample.values
+    best_result = best_res.extra.trace
+    states = [list(i) for i in best_result.states]
+    times = [float(i) for i in best_result.times]
+
+    path_list.append(r[0])
+    cost_list.append(best_res.cost)
+    sample_list.append(best_sample)
+    states_list.append(states)
+    times_list.append(times)
+    v_count_list.append(r[3])
+
+  processed_data = {
+    'path': path_list,
+    'cost': cost_list,
+    'sample': sample_list,
+    'states': states_list,
+    'times': times_list,
+    'v_count': v_count_list
+  }
+
+  with open(filename, 'w') as f:
+    json.dump(processed_data, f)
+
+def save_reachability_result(raw_data, filename):
+  path_list = []
+  v_count_list = []
+  for r in raw_data:
+    path_list.append(r[0])
+    v_count_list.append(r[1])
+  processed_data = {
+    'path': path_list,
+    'v_count': v_count_list
+  }
+  with open(filename, 'w') as f:
+    json.dump(processed_data, f)
 
 def falsification_with_actual_model(node):
   path = node.path
@@ -471,12 +531,13 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{}, {}] !(TankHeight >= {} and TankHeight <= {}))' \
+      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
             ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
       if k != len(pruning_children) - 1:
         extra_phi += ' or '
-    phi += ' or (' + extra_phi + ')'
+    if extra_phi != '':
+      phi += ' or (' + extra_phi + ')'
 
   print('Searching Node: {}, Phi: {}'.format(path, phi))
 
