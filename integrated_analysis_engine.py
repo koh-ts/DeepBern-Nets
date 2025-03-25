@@ -43,74 +43,12 @@ import time
 import logging
 
 scaling_factor = {
-  "min": [
-    0.00012228660424362658,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    -12.947212219238281
-  ],
-  "max": [
-    7.999964949027126,
-    8.48736771478237,
-    8.973167500638938,
-    9.452481768993627,
-    9.925128063251766,
-    10.394770541981519,
-    10.811635473914432,
-    11.293867117582742,
-    11.773110825827766,
-    12.248974776305648,
-    12.721085244405165,
-    13.189033979699555,
-    13.644411232334877,
-    14.073094462889278,
-    14.464576232984038,
-    14.811990889865044,
-    15.15830120608507,
-    15.510364709758887,
-    15.872620274371885,
-    16.34860212117229,
-    16.775598523290164,
-    17.267232982560255,
-    17.75560763595966,
-    18.23467056595263,
-    18.698969207133995,
-    19.14366880987464,
-    19.56455244032151,
-    19.95802098039758,
-    20.321093127801905,
-    20.65140539600957,
-    20.94721211427172,
-    7.999631881713867
-  ]
+  "speed_min": 0.0,
+  "speed_max": 135.54785661249386,
+  "rpm_min": 600.0,
+  "rpm_max": 4775.429858741292,
+  "robustness_min": -15.5478515625,
+  "robustness_max": 2332.626220703125,
 }
 
 class VehicleEngine(Model[list[float], None]):
@@ -206,15 +144,19 @@ signals = {
 }
 options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
 
+cp = 10
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     torch.manual_seed(123)
     torch.cuda.manual_seed(123)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True
-    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/state_robust/state_robust_02/checkpoint_best_model.pth')
+    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_06/checkpoint_best_model.pth')
     input_dimension = len(scaling_factor['min'][:-1])
-    model = FCModel([input_dimension,1024,1024,1024,1024,1], 8).to(device)
+    # params['model_state_dict']['net.0.weight'].shape[1]
+    input_dimension = params['model_state_dict']['net.0.weight'].shape[1]
+    model = FCModel([input_dimension,256,256,256,256,256,1], 8).to(device)
     model.eval()
     input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
     model.load_state_dict(params['model_state_dict'])
@@ -224,12 +166,13 @@ def main():
     entire_bounds_ = rescaling_output(entire_bounds.squeeze(0).squeeze(0))
     print('Entire bound: {}'.format(entire_bounds_.tolist()))
 
-    t = HistoryTrie(height=10, num_child=4)
+    t = HistoryTrie(height=cp, num_child=4)
     # G = Digraph(format='png')
     # G.attr('node', shape='circle')
     # G.node('root', label='root')
     tree = t.root
-    path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
+    # path table is from angr-staliro/misc/min_max_control04.json
+    path_table = {0: [[600, 3300], [0, 80]], 1: [[600, 3300], [80, 135.6]], 2: [[3300, 4775.5], [0, 80]], 3: [[3300, 4775.5], [80, 135.6]]}
     q = []
     safe_range = []
     unsafe_range = []
@@ -267,7 +210,6 @@ def main():
         if bound_[0] < 0.0 and bound_[1] > 0.0:
           yellow_range.append((node.path, v_count))
           v_count += 1
-          tmp = []
           if node.height == 0:
             # This is when the node is a leaf and still yellow result
             break
@@ -275,11 +217,25 @@ def main():
             if not node.children[path[j]].visited:
               node = node.children[path[j]]
             # What if the child node is visited?
+          # one_dimension: num of states for one state veriable (e.g., Speed, RPM)
+          one_dimension = input_dimension // 2
+
+          # each_interval: num of states for one control point
+          # If one_dimension = 751, meaning 0.04 sec for sampling time for 30 sec of simulation time,
+          # and cp = 10, then each_interval = 75, meaning all this 75 states fall in the same branch
+          # in the control prgram for one control point duration
+          each_interval = one_dimension // cp
+          tmp = []
+          tmp_speed = []
+          tmp_rpm = []
           for i, p in enumerate(node.path):
             tmp_val = path_table[p]
-            # For cp == 10
-            tmp += [tmp_val] * 3
-          tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+            tmp_speed += [tmp_val[1]] * each_interval
+            tmp_rpm += [tmp_val[0]] * each_interval
+
+          tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
+          tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
+          tmp = tmp_rpm + tmp_speed
 
           # NN reachability analysis
           input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
@@ -344,19 +300,21 @@ def main():
         continue
 
       tmp = []
+      tmp_speed = []
+      tmp_rpm = []
       for i, p in enumerate(node.path):
         tmp_val = path_table[p]
-        # For cp == 10
-        tmp += [tmp_val] * 3
-      tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+        tmp_speed += [tmp_val[1]] * each_interval
+        tmp_rpm += [tmp_val[0]] * each_interval
+
+      tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
+      tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
+      tmp = tmp_rpm + tmp_speed
+
       # NN reachability analysis
       input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-      bound = model.forward_subinterval(input_bound)       
+      bound = model.forward_subinterval(input_bound)
       bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-      
-
-          
-          
 
       # If it's a leaf node and the color is yellow, that means we need to do the falsification with the actual model on the leaf node
       # if bound_[0] < 0.0 and bound_[1] > 0.0:
@@ -557,6 +515,23 @@ def falsification_with_actual_model(node):
       print('Not falsified')
       print('Cost: {}'.format(res[0].evaluations[0].cost))
   return res, best_result
+
+def scaling_input_bound_engine(b):
+  # First 751 elements in b are for Speed, and the rest 751 elements are for RPM
+  # We have speed_min, speed_max, rpm_min, rpm_max
+  # Min max scaling: x' = (x - min) / (max - min)
+  lb_speed = (b[:751, 0] - scaling_factor['speed_min']) / (scaling_factor['speed_max'] - scaling_factor['speed_min'])
+  ub_speed = (b[:751, 1] - scaling_factor['speed_min']) / (scaling_factor['speed_max'] - scaling_factor['speed_min'])
+  lb_rpm = (b[751:, 0] - scaling_factor['rpm_min']) / (scaling_factor['rpm_max'] - scaling_factor['rpm_min'])
+  ub_rpm = (b[751:, 1] - scaling_factor['rpm_min']) / (scaling_factor['rpm_max'] - scaling_factor['rpm_min'])
+  lb = torch.cat([lb_speed, lb_rpm])
+  ub = torch.cat([ub_speed, ub_rpm])
+  return torch.stack([lb, ub], dim=1)
+
+def rescaling_output_engine(y):
+  min_max = torch.tensor([scaling_factor['robustness_min'], scaling_factor['robustness_max']]).T.to(device)
+  y = y * (min_max[:,1] - min_max[:,0]) + min_max[:,0]
+  return y
 
 def scaling_input(x):
   min_max = torch.tensor([scaling_factor['min'], scaling_factor['max']]).T.to(device)

@@ -7,7 +7,8 @@ import re
 from datasets import StaliroDataset
 
 # data_list = ['20241107_103833.json','20241107_105313.json','20241107_110806.json','20241107_112257.json','20241107_113754.json']
-data_path = '/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data_variable_cp'
+# data_path = '/home/koh/work/matiec_rampo/examples/tankcontrol_flowrate/data_variable_cp'
+data_path = '/home/koh/work/matiec_rampo/examples/vehicle_engine/data'
 data_list = glob.glob(os.path.join(data_path, '*.json'))
 
 # d_train = []
@@ -315,8 +316,123 @@ def signal_robust():
 
     print('ddddd')
 
+def vehicle_engine():
+    feature_vec_train = []
+    feature_vec_test = []
+    d_train = []
+    d_test = []
+    speed_train_ = []
+    speed_test_ = []
+    rpm_train_ = []
+    rpm_test_ = []
+    robustness_train_ = []
+    robustness_test_ = []
+    speed_max, speed_min, rpm_max, rpm_min, robustness_max, robustness_min = 0, np.inf, 0, np.inf, 0, np.inf
+    # file = '20250322_221719_10.json'
+    files = ['20250322_221719_10.json',
+            '20250323_141926_10.json',
+            '20250323_144659_10.json',
+            '20250323_151436_10.json',
+            '20250323_154214_10.json',
+            '20250323_160953_10.json',
+            '20250323_163734_10.json',
+            '20250323_170515_10.json',
+            '20250323_173315_10.json',
+            '20250323_180106_10.json',
+            '20250323_182856_10.json']
+
+    for file in files:   
+        with open(os.path.join(data_path, file), 'r') as f:
+            data = json.load(f)
+
+        train_len = int(len(data) * 0.8)
+        test_len = len(data) - train_len
+
+        for i, d in enumerate(data):
+            if i < train_len:
+                speed = np.array(d['states'])[:, 0]
+                speed_max = max(speed_max, speed.max())
+                speed_min = min(speed_min, speed.min())
+                speed_train_.append(speed)
+                rpm = np.array(d['states'])[:, 1]
+                rpm_max = max(rpm_max, rpm.max())
+                rpm_min = min(rpm_min, rpm.min())
+                rpm_train_.append(rpm)
+                robustness = np.array(d['robustness'])
+                robustness_min = min(robustness_min, robustness.min())
+                robustness_max = max(robustness_max, robustness.max())
+                robustness_train_.append(robustness)
+            else:
+                speed_test_.append(np.array(d['states'])[:, 0])
+                rpm_test_.append(np.array(d['states'])[:, 1])
+                robustness_test_.append(np.array(d['robustness']))
+    
+    speed_train_ = (np.array(speed_train_) - speed_min) / (speed_max - speed_min)
+    rpm_train_ = (np.array(rpm_train_) - rpm_min) / (rpm_max - rpm_min)
+    robustness_train_ = (np.array(robustness_train_) - robustness_min) / (robustness_max - robustness_min)
+    scaled_feature_train = np.concatenate((speed_train_, rpm_train_, robustness_train_.reshape(-1, 1)), axis=1)
+
+    speed_test_ = (np.array(speed_test_) - speed_min) / (speed_max - speed_min)
+    rpm_test_ = (np.array(rpm_test_) - rpm_min) / (rpm_max - rpm_min)
+    robustness_test_ = (np.array(robustness_test_) - robustness_min) / (robustness_max - robustness_min)
+    scaled_feature_test = np.concatenate((speed_test_, rpm_test_, robustness_test_.reshape(-1, 1)), axis=1)
+
+
+    # feature_vec_train = np.array(feature_vec_train)
+    # feature_vec_test = np.array(feature_vec_test)
+    # min_train = feature_vec_train.min(axis=0)
+    # max_train = feature_vec_train.max(axis=0)
+
+    # range_values = max_train - min_train
+    # range_values[range_values == 0] = 1
+
+    # scaled_feature_train = (feature_vec_train - min_train) / range_values
+    # scaled_feature_test = (feature_vec_test - min_train) / range_values
+
+    scaled_train = []
+    scaled_test = []
+
+    for d in scaled_feature_train:
+        scaled_states = d[:-1].tolist()
+        scaled_robustness = float(d[-1])
+        scaled_item = {
+            'states': scaled_states,
+            'robustness': scaled_robustness
+        }
+        scaled_train.append(scaled_item)
+
+    for d in scaled_feature_test:
+        scaled_states = d[:-1].tolist()
+        scaled_robustness = float(d[-1])
+        scaled_item = {
+            'states': scaled_states,
+            'robustness': scaled_robustness
+        }
+        scaled_test.append(scaled_item)
+
+    print('a')
+
+    with open(os.path.join(data_path + '/done', 'data_train_vehicle_engine_large.json'), 'w') as f:
+        json.dump(scaled_train, f)
+
+    with open(os.path.join(data_path + '/done', 'data_test_vehicle_engine_large.json'), 'w') as f:
+        json.dump(scaled_test, f)
+
+    with open(os.path.join(data_path + '/done', 'data_vehicle_engine_min_max_large.json'), 'w') as f:
+        json.dump({'speed_min': speed_min,
+                    'speed_max': speed_max,
+                    'rpm_min': rpm_min,
+                    'rpm_max': rpm_max,
+                    'robustness_min': robustness_min,
+                    'robustness_max': robustness_max,
+                    'train_len': train_len,
+                    'test_len': test_len}, f, indent=2)
+
+    print('ddddd')
+
 if __name__ == "__main__":
     # signal_robust()
     # state-next_state()
     # state_robust()
-    diff_cp_min_max_scaling()
+    # diff_cp_min_max_scaling()
+    vehicle_engine()

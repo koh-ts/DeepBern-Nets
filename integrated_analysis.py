@@ -239,7 +239,7 @@ def main():
     # q.append(tree)
     # for c in tree.children:
     #   q.append(c)
-    start = time.time()
+    start = time.perf_counter()
 
     res = staliro(sim_model, specification, optimizer, options)
     res[0].evaluations.sort(key=lambda x: x.cost)
@@ -434,19 +434,30 @@ def main():
     # for y in yellow_range:
     #     G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
     # G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
-    end = time.time()
+    end = time.perf_counter()
     # print('Time: {}'.format(end - start))
     # print('safe range: {}'.format(safe_range))
     # print('red range: {}'.format(red_range))
     # print('falsified list: {}'.format(falsified_list))
     # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
-
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/not_falsified.json')
-    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/safe_ranges.json')
-    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/red_ranges.json')
-    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/yellow_ranges.json')
+    stamp = str(time.strftime("%Y%m%d_%H%M%S"))
+    execution_info = {
+      'execution_time': end - start,
+      'safe_range_count': len(safe_range),
+      'red_range_count': len(red_range),
+      'yellow_range_count': len(yellow_range),
+      'falsified_list_count': len(falsified_list),
+      'not_falsified_list_count': len(not_falsified_list),
+      'v_count': v_count
+    }
+    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_numbers.json', 'w') as f:
+      json.dump(execution_info, f)
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_not_falsified.json')
+    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_safe_ranges.json')
+    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_red_ranges.json')
+    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_yellow_ranges.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):

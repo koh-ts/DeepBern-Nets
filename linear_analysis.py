@@ -40,6 +40,7 @@ else:
 
 import time
 import logging
+import datetime
 
 scaling_factor = {
   "min": [
@@ -215,8 +216,10 @@ def main():
     yellow_range = []
     falsified_list = []
     not_falsified_list = []
+    leaf_check_list = []
+    not_leaf_check_list = []
 
-    start = time.time()
+    start = time.perf_counter()
 
     res = staliro(sim_model, specification, optimizer, options)
     res[0].evaluations.sort(key=lambda x: x.cost)
@@ -238,6 +241,11 @@ def main():
             path = path_extraction(best_result)
             for i in range(len(node.path), len(path)):
                 node = node.children[path[i]]
+            res_check, best_result_check = falsification_with_actual_model(node)
+            if res_check[0].evaluations[0].cost < 0.0:
+                leaf_check_list.append([node.path, res_check, best_result_check, v_count])
+            else:
+                not_leaf_check_list.append([node.path, res_check, best_result_check, v_count])
             node.visited = True
             node = node.parent
         else:
@@ -341,10 +349,26 @@ def main():
     #   input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
     #   bound = model.forward_subinterval(input_bound)       
     #   bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-    end = time.time()
+    end = time.perf_counter()
     print('Time: {}'.format(end - start))
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/not_falsified.json')
+    stamp = str(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    execution_info = {
+      'execution_time': end - start,
+      'safe_range_count': len(safe_range),
+      'red_range_count': len(red_range),
+      'yellow_range_count': len(yellow_range),
+      'falsified_list_count': len(falsified_list),
+      'not_falsified_list_count': len(not_falsified_list),
+      'leaf_check_list_count': len(leaf_check_list),
+      'not_leaf_check_list_count': len(not_leaf_check_list),
+      'v_count': v_count
+    }
+    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_numbers.json', 'w') as f:
+      json.dump(execution_info, f)
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_not_falsified.json')
+    save_falsification_result(leaf_check_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_leaf_check.json')
+    save_falsification_result(not_leaf_check_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_not_leaf_check.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):

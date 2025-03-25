@@ -45,6 +45,13 @@ class StaliroDataset(Dataset):
             else:
                 states = torch.tensor(states)
             return states, torch.tensor([self.data[idx]['robustness']], dtype=torch.float32)
+        elif self.type == 2:
+            states = self.data[idx]['states']
+            if not self.transform == None:
+                states = self.transform(torch.tensor(states))
+            else:
+                states = torch.tensor(states)
+            return states, torch.tensor([self.data[idx]['robustness']], dtype=torch.float32)
 
 class MinMaxNormalize1D(object):
     def __init__(self, min_value, max_value):
@@ -166,8 +173,8 @@ def load_staliro(root_dir="./data", batch_size=64, flatten=True, samples_dist=0,
     # )
     trans=None
 
-    train_set = StaliroDataset(train=train, transform=trans, type_num=type_num, data_path_train=data_path_train)
-    test_set = StaliroDataset(train=train, transform=trans, type_num=type_num, data_path_test=data_path_test)
+    train_set = StaliroDataset(train=True, transform=trans, type_num=type_num, data_path_train=data_path_train)
+    test_set = StaliroDataset(train=False, transform=trans, type_num=type_num, data_path_test=data_path_test)
 
     train_loader = torch.utils.data.DataLoader(
         dataset=train_set, batch_size=batch_size, shuffle=True, num_workers=4
