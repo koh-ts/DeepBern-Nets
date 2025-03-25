@@ -363,12 +363,12 @@ def main():
       'not_leaf_check_list_count': len(not_leaf_check_list),
       'v_count': v_count
     }
-    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_numbers.json', 'w') as f:
+    with open('/home/koh/work/DeepBern-Nets/result/linear_analysis/' + stamp + '_numbers.json', 'w') as f:
       json.dump(execution_info, f)
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_not_falsified.json')
-    save_falsification_result(leaf_check_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_leaf_check.json')
-    save_falsification_result(not_leaf_check_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/' + stamp + '_not_leaf_check.json')
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/linear_analysis/' + stamp + '_falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/linear_analysis/' + stamp + '_not_falsified.json')
+    save_falsification_result(leaf_check_list, '/home/koh/work/DeepBern-Nets/result/linear_analysis/' + stamp + '_leaf_check.json')
+    save_falsification_result(not_leaf_check_list, '/home/koh/work/DeepBern-Nets/result/linear_analysis/' + stamp + '_not_leaf_check.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):
