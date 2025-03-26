@@ -18,6 +18,8 @@ from staliro.models import Model, Result
 from staliro.optimizers import DualAnnealing
 from staliro.specifications import rtamt
 
+import argparse
+
 # from staliro import models, optimizers, specifications
 # from staliro.options import TestOptions
 # from staliro.staliro import staliro
@@ -162,10 +164,23 @@ def path_extraction(best_result):
     # best_result = simulate_model(model, options, best_sample)
     path = []
 
-    # This works only for the current setting: cp = 10, sim_time = 30
-    extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
-    # This works only for the current setting: cp = 4, sim_time = 30
-    # extract_point_list = [0, 8, 15, 23]
+    # # This works only for the current setting: cp = 10, sim_time = 30
+    # extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
+    # # This works only for the current setting: cp = 4, sim_time = 30
+    # # extract_point_list = [0, 8, 15, 23]
+    sim_time = best_result.trace.times[-1]
+    interval = sim_time / cp
+    timing = [i * interval for i in range(cp)]
+
+    # Find index of nearest time point in trace for each extract point
+    extract_point_list = []
+    for p in timing:
+      # Find the index of the smallest value in times that is >= p
+      idx = np.searchsorted(best_result.trace.times, p)
+      # Make sure we don't go out of bounds
+      if idx >= len(best_result.trace.times):
+        idx = len(best_result.trace.times) - 1
+      extract_point_list.append(idx)
 
     for p in extract_point_list:
         if best_result.trace.states[p][0] >= ranges['TankHeight'][0][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][0][1]:
@@ -186,6 +201,12 @@ def path_extraction(best_result):
 # device = 'cuda:4'
 device = 'cpu'
 
+parser = argparse.ArgumentParser(description='Integrated Analysis')
+parser.add_argument('--cp', type=int, required=True, help='Control points')
+args = parser.parse_args()
+cp = args.cp
+
+
 sim_model = TankControlFlowRate()
 ranges = {
   "TankHeight": [[0.0, 5.0], [5.0, 7.0], [7.0, 10.0], [10.0, 100.0]],
@@ -193,15 +214,13 @@ ranges = {
     "OutValve": [[0.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
 }
 phi = "(always[0,30] (TankHeight <= 8))"
-# specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
 specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-# specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
 optimizer = DualAnnealing(min_cost=0.0)
 signals = {
-    "InValve": SignalInput(control_points=[(0, 1)] * 10),
-    "OutValve": SignalInput(control_points=[(0, 1)] * 10),
-    "InValveRate": SignalInput(control_points=[(30, 100)] * 10),
-    "OutValveRate": SignalInput(control_points=[(30, 100)] * 10), 
+    "InValve": SignalInput(control_points=[(0, 1)] * cp),
+    "OutValve": SignalInput(control_points=[(0, 1)] * cp),
+    "InValveRate": SignalInput(control_points=[(30, 100)] * cp),
+    "OutValveRate": SignalInput(control_points=[(30, 100)] * cp), 
 }
 options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
 
@@ -223,7 +242,7 @@ def main():
     entire_bounds_ = rescaling_output(entire_bounds.squeeze(0).squeeze(0))
     print('Entire bound: {}'.format(entire_bounds_.tolist()))
 
-    t = HistoryTrie(height=10, num_child=4)
+    t = HistoryTrie(height=cp, num_child=4)
     # G = Digraph(format='png')
     # G.attr('node', shape='circle')
     # G.node('root', label='root')
@@ -246,6 +265,20 @@ def main():
     best_sample = res[0].evaluations[0].sample.values
     best_result = res[0].evaluations[0].extra
     path = path_extraction(best_result)
+
+    sim_time = best_result.trace.times[-1]
+    interval = sim_time / cp
+    timing = [i * interval for i in range(cp)]
+
+    # Find index of nearest time point in trace for each extract point
+    extract_point_list = []
+    for p in timing:
+      # Find the index of the smallest value in times that is >= p
+      idx = np.searchsorted(best_result.trace.times, p)
+      # Make sure we don't go out of bounds
+      if idx >= len(best_result.trace.times):
+        idx = len(best_result.trace.times) - 1
+      extract_point_list.append(idx)
 
     node = t.root
     # node = node.children[path[0]]
@@ -276,9 +309,14 @@ def main():
             # What if the child node is visited?
           for i, p in enumerate(node.path):
             tmp_val = path_table[p]
-            # For cp == 10
-            tmp += [tmp_val] * 3
+            if i + 1 < cp:
+              tmp += [tmp_val] * (extract_point_list[i + 1] - extract_point_list[i])
+            else:
+              tmp += [tmp_val] * (len(best_result.trace.times) - extract_point_list[i])
+            # print('tmp: {}'.format(tmp))
           tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+          #   tmp += [tmp_val] * 3
+          # tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
 
           # NN reachability analysis
           input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
@@ -288,7 +326,7 @@ def main():
         # If the NN reachability result is red or white, we need to go up to the parent node and
         # do the falsification with the actual model excluding the child node that has previously been visited
         else:
-          if bounds_[0] > 0.0:
+          if bound_[0] > 0.0:
             # This means that the entire output bound is positive (white)
             safe_range.append((node.path, v_count))
             v_count += 1
@@ -441,7 +479,7 @@ def main():
     # print('falsified list: {}'.format(falsified_list))
     # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
-    stamp = str(time.strftime("%Y%m%d_%H%M%S"))
+    stamp = str(time.strftime("%Y%m%d_%H%M%S")) + '_' + str(cp)
     execution_info = {
       'execution_time': end - start,
       'safe_range_count': len(safe_range),
@@ -519,7 +557,7 @@ def falsification_with_actual_model(node):
   phi = ''
   epsilon = 0.0
   for i, p in enumerate(path):
-    phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
+    phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
             ranges['TankHeight'][p][0], ranges['TankHeight'][p][1])
     if i != len(path) - 1:
@@ -542,7 +580,7 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
+      extra_phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
             ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
       if k != len(pruning_children) - 1:

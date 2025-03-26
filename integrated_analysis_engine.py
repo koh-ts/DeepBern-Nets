@@ -52,7 +52,7 @@ scaling_factor = {
 }
 
 class VehicleEngine(Model[list[float], None]):
-    MODEL_NAME = "sldemo_autotrans_mod03.mdl"
+    MODEL_NAME = "sldemo_autotrans_mod03"
 
     def __init__(self) -> None:
         if not _has_matlab:
@@ -102,18 +102,43 @@ def path_extraction(best_result):
     path = []
 
     # This works only for the current setting: cp = 10, sim_time = 30
-    extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
+    # l = len(best_result.trace.states)
+    # cp = 10
+    # interval = l // cp
+    # extract_point_list = [int(i * interval) for i in range(cp)]
+    # extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
     # This works only for the current setting: cp = 4, sim_time = 30
     # extract_point_list = [0, 8, 15, 23]
 
+
+    aaaa # cause error
+    # Check if the part below works
+    sim_time = best_result.trace.times[-1]
+    interval = sim_time / cp
+    extract_point_list = [i * interval for i in range(cp)]
+
+    # Find index of nearest time point in trace for each extract point
+    indices = []
     for p in extract_point_list:
-        if best_result.trace.states[p][0] >= ranges['TankHeight'][0][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][0][1]:
+      # Find the index of the smallest value in times that is >= p
+      idx = np.searchsorted(best_result.trace.times, p)
+      # Make sure we don't go out of bounds
+      if idx >= len(best_result.trace.times):
+        idx = len(best_result.trace.times) - 1
+      indices.append(idx)
+
+    for p in extract_point_list:
+        if best_result.trace.states[p][0] >= ranges['speed'][0][0] and best_result.trace.states[p][0] <= ranges['speed'][0][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][0][0] and best_result.trace.states[p][1] <= ranges['rpm'][0][1]:
             path.append(0)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][1][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][1][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][1][0] and best_result.trace.states[p][0] <= ranges['speed'][1][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][1][0] and best_result.trace.states[p][1] <= ranges['rpm'][1][1]:
             path.append(1)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][2][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][2][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][2][0] and best_result.trace.states[p][0] <= ranges['speed'][2][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][2][0] and best_result.trace.states[p][1] <= ranges['rpm'][2][1]:
             path.append(2)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][3][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][3][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][3][0] and best_result.trace.states[p][0] <= ranges['speed'][3][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][3][0] and best_result.trace.states[p][1] <= ranges['rpm'][3][1]:
             path.append(3)
         else:
             path.append(-1)
@@ -125,24 +150,22 @@ def path_extraction(best_result):
 # device = 'cuda:4'
 device = 'cpu'
 
-sim_model = TankControlFlowRate()
+sim_model = VehicleEngine()
 ranges = {
-  "TankHeight": [[0.0, 5.0], [5.0, 7.0], [7.0, 10.0], [10.0, 100.0]],
-  "InValve": [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [0.0, 0.0]],
-    "OutValve": [[0.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+	"throttle": [[87.7, 100], [0, 81.599], [0, 63.099], [0, 87.298]],
+	"rpm": [[0, 3300], [0, 3300], [3300, 4500], [3300, 4500]],
+	"speed": [[0, 80], [80, 120], [0, 80], [80, 120]]
 }
-phi = "(always[0,30] (TankHeight <= 8))"
-# specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-# specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
+safety_speed = 100
+safety_rpm = 4300
+phi = "!(F[0,30] (Speed >= " + str(safety_speed) +") and F[0,30] (RPM >= " + str(safety_rpm) + "))"# specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
+print('phi: {}'.format(phi))
+specification = rtamt.parse_dense(phi, {"Speed": 0, "RPM": 1})
 optimizer = DualAnnealing(min_cost=0.0)
 signals = {
-    "InValve": SignalInput(control_points=[(0, 1)] * 10),
-    "OutValve": SignalInput(control_points=[(0, 1)] * 10),
-    "InValveRate": SignalInput(control_points=[(30, 100)] * 10),
-    "OutValveRate": SignalInput(control_points=[(30, 100)] * 10), 
+    "throttle": SignalInput(control_points=[(0, 100)] * 10),
 }
-options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
+options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals, seed=123)
 
 cp = 10
 
@@ -152,27 +175,25 @@ def main():
     torch.cuda.manual_seed(123)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True
-    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_06/checkpoint_best_model.pth')
-    input_dimension = len(scaling_factor['min'][:-1])
+    # params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_06/checkpoint_best_model.pth')
+    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_01/checkpoint_best_model.pth')
+    # input_dimension = len(scaling_factor['min'][:-1])
     # params['model_state_dict']['net.0.weight'].shape[1]
     input_dimension = params['model_state_dict']['net.0.weight'].shape[1]
-    model = FCModel([input_dimension,256,256,256,256,256,1], 8).to(device)
+    model = FCModel([input_dimension,515,515,515,515,515,1], 8).to(device)
     model.eval()
     input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
     model.load_state_dict(params['model_state_dict'])
     model.input_bounds = input_bounds_
     init_bounds = torch.tensor([[0.0, 1.0]] * input_dimension).to(device)
     entire_bounds = model.forward_subinterval(init_bounds)
-    entire_bounds_ = rescaling_output(entire_bounds.squeeze(0).squeeze(0))
+    entire_bounds_ = rescaling_output_engine(entire_bounds.squeeze(0).squeeze(0))
     print('Entire bound: {}'.format(entire_bounds_.tolist()))
 
     t = HistoryTrie(height=cp, num_child=4)
-    # G = Digraph(format='png')
-    # G.attr('node', shape='circle')
-    # G.node('root', label='root')
     tree = t.root
     # path table is from angr-staliro/misc/min_max_control04.json
-    path_table = {0: [[600, 3300], [0, 80]], 1: [[600, 3300], [80, 135.6]], 2: [[3300, 4775.5], [0, 80]], 3: [[3300, 4775.5], [80, 135.6]]}
+    path_table = {0: [[600, 3300], [0, 80]], 1: [[600, 3300], [80, 135.54785661249386]], 2: [[3300, 4775.429858741292], [0, 80]], 3: [[3300, 4775.429858741292], [80, 135.54785661249386]]}
     q = []
     safe_range = []
     unsafe_range = []
@@ -180,9 +201,6 @@ def main():
     yellow_range = []
     falsified_list = []
     not_falsified_list = []
-    # q.append(tree)
-    # for c in tree.children:
-    #   q.append(c)
     start = time.time()
 
     res = staliro(sim_model, specification, optimizer, options)
@@ -192,7 +210,6 @@ def main():
     path = path_extraction(best_result)
 
     node = t.root
-    # node = node.children[path[0]]
     bound_ = [-0.1, 0.1]
     v_count = 0
     while t.root.visited == False:
@@ -235,17 +252,17 @@ def main():
 
           tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
           tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
-          tmp = tmp_rpm + tmp_speed
+          tmp = tmp_speed + tmp_rpm
 
           # NN reachability analysis
-          input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
+          input_bound = scaling_input_bound_engine(torch.tensor(tmp).to(device))
           bound = model.forward_subinterval(input_bound)
-          bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
+          bound_ = rescaling_output_engine(bound.squeeze(0).squeeze(0))
 
         # If the NN reachability result is red or white, we need to go up to the parent node and
         # do the falsification with the actual model excluding the child node that has previously been visited
         else:
-          if bounds_[0] > 0.0:
+          if bound_[0] > 0.0:
             # This means that the entire output bound is positive (white)
             safe_range.append((node.path, v_count))
             v_count += 1
@@ -255,6 +272,7 @@ def main():
             v_count += 1
           node.visited = True
           node = node.parent
+          break
 
       # Here, we do the falsification with the actual model
       # There are several cases from the previous NN reachability step
@@ -309,90 +327,12 @@ def main():
 
       tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
       tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
-      tmp = tmp_rpm + tmp_speed
+      tmp = tmp_speed + tmp_rpm
 
       # NN reachability analysis
-      input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
+      input_bound = scaling_input_bound_engine(torch.tensor(tmp).to(device))
       bound = model.forward_subinterval(input_bound)
-      bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-
-      # If it's a leaf node and the color is yellow, that means we need to do the falsification with the actual model on the leaf node
-      # if bound_[0] < 0.0 and bound_[1] > 0.0:
-      #   res, best_result = falsification_with_actual_model(node)
-      #   falsified = res.runs[0].history[0].cost < 0.0
-      #   if falsified:
-      #     # Since the result is falsified, we store this node as a potential vulnerabile node
-      #     node.visited = True
-      #     falsified_list.append(node.path)
-      #   else:
-      #     # If the result is not falsified, we store this node as a safe node
-      #     node.visited = True
-      #     not_falsified_list.append(node.path)
-      # else:
-      #   # Regardless of whether it's red or while, we just mark the node as visited and move up to the parent node
-      #   node.visited = True
-      #   node = node.parent
-      #   res, best_result = falsification_with_actual_model(node)
-      #   falsified = res.runs[0].history[0].cost < 0.0
-      #   if falsified:
-      #     # Extract the path and go all the way to the leaf node
-      #     extracted_path = path_extraction(best_result)
-      #     current_depth = len(path)
-      #     for i in range(current_depth, 10):
-      #       node = node.children[extracted_path[i]]
-      #   node = node.parent
-
-
-
-
-      # If it's safe result, meaning that the entire output bound is positive
-
-      # if negative_value_check(bound_):
-      #   node.visited = True
-      #   for c in node.children:
-      #     q.append(c)
-      # if node.height == 0:
-      #   if negative_value_check(bound_):
-
-      #     if red_yellow_check(bound_):
-      #        red_range.append(path)
-      #     else:
-      #        yellow_range.append(path)
-      #     print('Path: {}'.format(path))
-      #     print('Output bound: {}'.format(bound_.tolist()))
-      #     node.visited = True
-      #   else:
-      #     safe_range.append(path)
-    
-      #   with open('/home/koh/work/DeepBern-Nets/safe_ranges.json', 'w') as f:
-      #       json.dump(safe_range, f)
-      #   with open('/home/koh/work/DeepBern-Nets/red_ranges.json', 'w') as f:
-      #       json.dump(red_range, f)
-      #   with open('/home/koh/work/DeepBern-Nets/yellow_ranges.json', 'w') as f:
-      #       json.dump(yellow_range, f)
-    
-    # end = time.time()
-    # print('Time: {}'.format(end - start))
-    # print('# of safe range: {}'.format(len(safe_range)))
-    # print('# of red range: {}'.format(len(red_range)))
-    # print('# of yellow range: {}'.format(len(yellow_range)))
-    # for c in t.root.children:
-    #     G.node(str(c.path), label=str(c.path))
-    #     G.edge('root', str(c.path))
-    #     for cc in c.children:
-    #         G.node(str(cc.path), label=str(cc.path))
-    #         G.edge(str(c.path), str(cc.path))
-    #         for ccc in cc.children:
-    #             G.node(str(ccc.path), label=str(ccc.path))
-    #             G.edge(str(cc.path), str(ccc.path))
-    #             for cccc in ccc.children:
-    #                 G.node(str(cccc.path), label=str(cccc.path))
-    #                 G.edge(str(ccc.path), str(cccc.path))
-    # for r in red_range:
-    #     G.node(str(r), label=str(r), style='filled', fillcolor='red')
-    # for y in yellow_range:
-    #     G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
-    # G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
+      bound_ = rescaling_output_engine(bound.squeeze(0).squeeze(0))
     end = time.time()
     # print('Time: {}'.format(end - start))
     # print('safe range: {}'.format(safe_range))
@@ -401,11 +341,11 @@ def main():
     # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
 
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/not_falsified.json')
-    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/safe_ranges.json')
-    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/red_ranges.json')
-    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis/yellow_ranges.json')
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/not_falsified.json')
+    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/safe_ranges.json')
+    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/red_ranges.json')
+    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/yellow_ranges.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):
@@ -463,13 +403,14 @@ def falsification_with_actual_model(node):
   sim_time = tend - tstart
   interval = sim_time / num_cp
   cp_array = [i * interval for i in range(num_cp)]
-  Phi = "(G[0,30] (TankHeight <= 8))"
+  Phi = "!(F[0,30] (Speed >= " + str(safety_speed) +") and F[0,30] (RPM >= " + str(safety_rpm) + "))"
   phi = ''
   epsilon = 0.0
   for i, p in enumerate(path):
-    phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
-            .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
-            ranges['TankHeight'][p][0], ranges['TankHeight'][p][1])
+    phi += '(G[{}, {}] (Speed >= {} and Speed <= {} and RPM >= {} and RPM <= {}))' \
+        .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
+        ranges['speed'][p][0], ranges['speed'][p][1], \
+        ranges['rpm'][p][0], ranges['rpm'][p][1])
     if i != len(path) - 1:
         phi += ' and '
   if phi != '':
@@ -490,9 +431,10 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
-            .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
-            ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
+      extra_phi += '(G[{}, {}] (Speed >= {} and Speed <= {} and RPM >= {} and RPM <= {}))' \
+        .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
+        ranges['speed'][c][0], ranges['speed'][c][1], \
+        ranges['rpm'][c][0], ranges['rpm'][c][1])
       if k != len(pruning_children) - 1:
         extra_phi += ' or '
     if extra_phi != '':
@@ -500,8 +442,7 @@ def falsification_with_actual_model(node):
 
   print('Searching Node: {}, Phi: {}'.format(path, phi))
 
-  # spec = TLTK(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
-  spec = rtamt.parse_dense(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
+  spec = rtamt.parse_dense(phi, {'Speed': 0, 'RPM': 1})
   res = staliro(sim_model, spec, optimizer, options)
   res[0].evaluations.sort(key=lambda x: x.cost)
   best_sample = res[0].evaluations[0].sample.values
@@ -530,7 +471,7 @@ def scaling_input_bound_engine(b):
 
 def rescaling_output_engine(y):
   min_max = torch.tensor([scaling_factor['robustness_min'], scaling_factor['robustness_max']]).T.to(device)
-  y = y * (min_max[:,1] - min_max[:,0]) + min_max[:,0]
+  y = y * (min_max[1] - min_max[0]) + min_max[0]
   return y
 
 def scaling_input(x):

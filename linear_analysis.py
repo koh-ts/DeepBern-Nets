@@ -18,6 +18,8 @@ from staliro.models import Model, Result
 from staliro.optimizers import DualAnnealing
 from staliro.specifications import rtamt
 
+import argparse
+
 # from staliro import models, optimizers, specifications
 # from staliro.options import TestOptions
 # from staliro.staliro import staliro
@@ -164,9 +166,23 @@ def path_extraction(best_result):
     path = []
 
     # This works only for the current setting: cp = 10, sim_time = 30
-    extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
+    # extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
     # This works only for the current setting: cp = 4, sim_time = 30
     # extract_point_list = [0, 8, 15, 23]
+
+    sim_time = best_result.trace.times[-1]
+    interval = sim_time / cp
+    timing = [i * interval for i in range(cp)]
+
+    # Find index of nearest time point in trace for each extract point
+    extract_point_list = []
+    for p in timing:
+      # Find the index of the smallest value in times that is >= p
+      idx = np.searchsorted(best_result.trace.times, p)
+      # Make sure we don't go out of bounds
+      if idx >= len(best_result.trace.times):
+        idx = len(best_result.trace.times) - 1
+      extract_point_list.append(idx)
 
     for p in extract_point_list:
         if best_result.trace.states[p][0] >= ranges['TankHeight'][0][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][0][1]:
@@ -187,6 +203,12 @@ def path_extraction(best_result):
 # device = 'cuda:4'
 device = 'cpu'
 
+parser = argparse.ArgumentParser(description='Integrated Analysis')
+parser.add_argument('--cp', type=int, required=True, help='Control points')
+args = parser.parse_args()
+cp = args.cp
+
+
 sim_model = TankControlFlowRate()
 ranges = {
   "TankHeight": [[0.0, 5.0], [5.0, 7.0], [7.0, 10.0], [10.0, 100.0]],
@@ -197,17 +219,17 @@ phi = "(always[0,30] (TankHeight <= 8))"
 specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
 optimizer = DualAnnealing(min_cost=0.0)
 signals = {
-    "InValve": SignalInput(control_points=[(0, 1)] * 10),
-    "OutValve": SignalInput(control_points=[(0, 1)] * 10),
-    "InValveRate": SignalInput(control_points=[(30, 100)] * 10),
-    "OutValveRate": SignalInput(control_points=[(30, 100)] * 10), 
+    "InValve": SignalInput(control_points=[(0, 1)] * cp),
+    "OutValve": SignalInput(control_points=[(0, 1)] * cp),
+    "InValveRate": SignalInput(control_points=[(30, 100)] * cp),
+    "OutValveRate": SignalInput(control_points=[(30, 100)] * cp), 
 }
 options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
 
-    t = HistoryTrie(height=10, num_child=4)
+    t = HistoryTrie(height=cp, num_child=4)
     tree = t.root
     path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
     safe_range = []
@@ -226,6 +248,21 @@ def main():
     best_sample = res[0].evaluations[0].sample.values
     best_result = res[0].evaluations[0].extra
     path = path_extraction(best_result)
+
+    sim_time = best_result.trace.times[-1]
+    interval = sim_time / cp
+    timing = [i * interval for i in range(cp)]
+
+    # Find index of nearest time point in trace for each extract point
+    extract_point_list = []
+    for p in timing:
+      # Find the index of the smallest value in times that is >= p
+      idx = np.searchsorted(best_result.trace.times, p)
+      # Make sure we don't go out of bounds
+      if idx >= len(best_result.trace.times):
+        idx = len(best_result.trace.times) - 1
+      extract_point_list.append(idx)
+
     node = t.root
     for i, p in enumerate(path):
         node = node.children[p]
@@ -256,102 +293,9 @@ def main():
             v_count += 1
             node = node.parent
 
-    #   h = node.height
-    #   for j in range(h):
-
-    #     # As long as the NN reachability result is yellow, we need to go down to the leaf node
-    #     if bound_[0] < 0.0 and bound_[1] > 0.0:
-    #       yellow_range.append((node.path, v_count))
-    #       v_count += 1
-    #       tmp = []
-    #       if node.height == 0:
-    #         # This is when the node is a leaf and still yellow result
-    #         break
-    #       else:
-    #         if not node.children[path[j]].visited:
-    #           node = node.children[path[j]]
-    #         # What if the child node is visited?
-    #       for i, p in enumerate(node.path):
-    #         tmp_val = path_table[p]
-    #         # For cp == 10
-    #         tmp += [tmp_val] * 3
-    #       tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
-
-    #       # NN reachability analysis
-    #       input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-    #       bound = model.forward_subinterval(input_bound)
-    #       bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-
-    #     # If the NN reachability result is red or white, we need to go up to the parent node and
-    #     # do the falsification with the actual model excluding the child node that has previously been visited
-    #     else:
-    #       if bounds_[0] > 0.0:
-    #         # This means that the entire output bound is positive (white)
-    #         safe_range.append((node.path, v_count))
-    #         v_count += 1
-    #       else:
-    #         # This means that the entire output bound is negative (red)
-    #         red_range.append((node.path, v_count))
-    #         v_count += 1
-    #       node.visited = True
-    #       node = node.parent
-
-    #   # Here, we do the falsification with the actual model
-    #   # There are several cases from the previous NN reachability step
-    #   # 1b: leaf yellow node -> Falsification with only the path constraints
-    #   #    Falsified: Store the path as a potential vulnerable node, and go up to the parent node
-    #   #    Not falsified: Store the path as a safe node, and go up to the parent node
-    #   # 2: red node -> Falsification with the path constraints down until one above the red node, and the pruning constraints
-    #   # 3: white node -> Falsification with the path constraints down until one above the white node, and the pruning constraints
-    #   falsified = False
-    #   while not falsified:
-    #     res, best_result = falsification_with_actual_model(node)
-    #     falsified = res[0].evaluations[0].cost < 0.0
-    #     if falsified:
-    #       if node.height == 0:
-    #         # If the node is a leaf node and it's falsified, we store this node as a potential vulnerable node
-    #         falsified_list.append([node.path, res, best_result, v_count])
-    #         v_count += 1
-    #         node.visited = True
-    #         node = node.parent
-    #         falsified = False
-    #       else:
-    #         # If the node is not a leaf node but it's falsified, then we extract the path and go towards the leaf node by one depth
-    #         # This path should not include the visited children nodes because we exclude them in the falsification attemp by adding the extra constraints
-    #         path = path_extraction(best_result)
-    #         l = len(node.path)
-    #         # if node.children[path[l]].visited:
-    #           # for c in node.children:
-    #           #   if not c.visited:
-    #           #     node = c
-    #         node = node.children[path[l]]
-    #         break
-    #     else:
-    #       # If the result is not falsified, then the entire subtree can regarded as safe, meaning there will be no vulnerable node
-    #       node.visited = True
-    #       if node == t.root:
-    #         break
-    #       elif node.height == 0:
-    #         not_falsified_list.append([node.path, res, best_result, v_count])
-    #         v_count += 1
-    #       node = node.parent
-      
-    #   if node == t.root:
-    #     continue
-
-    #   tmp = []
-    #   for i, p in enumerate(node.path):
-    #     tmp_val = path_table[p]
-    #     # For cp == 10
-    #     tmp += [tmp_val] * 3
-    #   tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
-    #   # NN reachability analysis
-    #   input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-    #   bound = model.forward_subinterval(input_bound)       
-    #   bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
     end = time.perf_counter()
     print('Time: {}'.format(end - start))
-    stamp = str(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    stamp = str(time.strftime("%Y%m%d_%H%M%S")) + '_' + str(cp)
     execution_info = {
       'execution_time': end - start,
       'safe_range_count': len(safe_range),
@@ -417,7 +361,7 @@ def falsification_with_actual_model(node):
   phi = ''
   epsilon = 0.0
   for i, p in enumerate(path):
-    phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
+    phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
             ranges['TankHeight'][p][0], ranges['TankHeight'][p][1])
     if i != len(path) - 1:
@@ -440,7 +384,7 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{}, {}] (TankHeight >= {} and TankHeight <= {}))' \
+      extra_phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
             .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
             ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
       if k != len(pruning_children) - 1:
