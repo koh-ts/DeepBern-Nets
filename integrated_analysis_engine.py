@@ -13,6 +13,7 @@ sys.path.append('/home/koh/work/angr-staliro/models')
 print(sys.path)
 from tree import *
 from graphviz import *
+import argparse
 
 from staliro import Sample, SignalInput, TestOptions, staliro
 from staliro.models import Model, Result
@@ -42,13 +43,26 @@ else:
 import time
 import logging
 
+# old engine spec data
+# scaling_factor = {
+#   "speed_min": 0.0,
+#   "speed_max": 135.54785661249386,
+#   "rpm_min": 600.0,
+#   "rpm_max": 4775.429858741292,
+#   "robustness_min": -15.5478515625,
+#   "robustness_max": 2332.626220703125,
+# }
+
+# new enigne spec data 
 scaling_factor = {
   "speed_min": 0.0,
-  "speed_max": 135.54785661249386,
+  "speed_max": 134.413849817066,
   "rpm_min": 600.0,
-  "rpm_max": 4775.429858741292,
-  "robustness_min": -15.5478515625,
-  "robustness_max": 2332.626220703125,
+  "rpm_max": 4775.234658160327,
+  "robustness_min": -34.413848876953125,
+  "robustness_max": 2120.63232421875,
+  "train_len": 23200,
+  "test_len": 5800
 }
 
 class VehicleEngine(Model[list[float], None]):
@@ -111,7 +125,6 @@ def path_extraction(best_result):
     # extract_point_list = [0, 8, 15, 23]
 
 
-    aaaa # cause error
     # Check if the part below works
     sim_time = best_result.trace.times[-1]
     interval = sim_time / cp
@@ -127,7 +140,7 @@ def path_extraction(best_result):
         idx = len(best_result.trace.times) - 1
       indices.append(idx)
 
-    for p in extract_point_list:
+    for p in indices:
         if best_result.trace.states[p][0] >= ranges['speed'][0][0] and best_result.trace.states[p][0] <= ranges['speed'][0][1] and \
             best_result.trace.states[p][1] >= ranges['rpm'][0][0] and best_result.trace.states[p][1] <= ranges['rpm'][0][1]:
             path.append(0)
@@ -167,7 +180,12 @@ signals = {
 }
 options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals, seed=123)
 
-cp = 10
+
+parser = argparse.ArgumentParser(description='Integrated Analysis')
+parser.add_argument('--cp', type=int, required=True, help='Control points')
+args = parser.parse_args()
+cp = args.cp
+# cp = 10
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
@@ -176,11 +194,12 @@ def main():
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True
     # params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_06/checkpoint_best_model.pth')
-    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_01/checkpoint_best_model.pth')
-    # input_dimension = len(scaling_factor['min'][:-1])
-    # params['model_state_dict']['net.0.weight'].shape[1]
+    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine_new/vehicle_engine_01/checkpoint_best_model.pth')
     input_dimension = params['model_state_dict']['net.0.weight'].shape[1]
-    model = FCModel([input_dimension,515,515,515,515,515,1], 8).to(device)
+    num_neurons = params['model_state_dict']['net.0.weight'].shape[0]
+    num_layers = (len(params['model_state_dict']._metadata) - 3) // 2
+    model = FCModel([input_dimension] + [num_neurons] * num_layers + [1], 8).to(device)
+    # model = FCModel([input_dimension,515,515,515,515,515,1], 8).to(device)
     model.eval()
     input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
     model.load_state_dict(params['model_state_dict'])
@@ -340,12 +359,24 @@ def main():
     # print('falsified list: {}'.format(falsified_list))
     # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
+    stamp = str(time.strftime("%Y%m%d_%H%M%S")) + '_' + str(cp)
 
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/not_falsified.json')
-    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/safe_ranges.json')
-    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/red_ranges.json')
-    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/yellow_ranges.json')
+    execution_info = {
+      'execution_time': end - start,
+      'safe_range_count': len(safe_range),
+      'red_range_count': len(red_range),
+      'yellow_range_count': len(yellow_range),
+      'falsified_list_count': len(falsified_list),
+      'not_falsified_list_count': len(not_falsified_list),
+      'v_count': v_count
+    }
+    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_numbers.json', 'w') as f:
+      json.dump(execution_info, f)
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_not_falsified.json')
+    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_safe_ranges.json')
+    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_red_ranges.json')
+    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine/' + stamp + '_yellow_ranges.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):
