@@ -365,7 +365,12 @@ def main():
               # for c in node.children:
               #   if not c.visited:
               #     node = c
-            node = node.children[path[l]]
+            if node.children[path[l]].visited:
+              # If the child node is visited, we need to go up to the parent node
+              node.visited = True
+              node = node.parent
+            else:
+              node = node.children[path[l]]
             break
         else:
           # If the result is not falsified, then the entire subtree can regarded as safe, meaning there will be no vulnerable node
