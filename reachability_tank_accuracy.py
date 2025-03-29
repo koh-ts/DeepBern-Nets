@@ -12,6 +12,9 @@ from graphviz import *
 
 import time
 
+from staliro.models import Trace
+from staliro.specifications import rtamt
+
 import argparse
 
 scaling_factor = {
@@ -97,6 +100,10 @@ entire_bound = [-0.0716,  2.9049]
 device = 'cpu'
 # torch.cuda.set_device(4)
 
+phi = "(always[0,30] (TankHeight <= 8))"
+specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
+specification = rtamt.parse_dense(phi, {"TankHeight": 0})
+
 def main():
     torch.manual_seed(123)
     torch.cuda.manual_seed(123)
@@ -117,6 +124,10 @@ def main():
 
     path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
     sim_time = 30
+    # generate 0 to 30 sec timing
+    times = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
+            11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
+            21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0]
     interval = sim_time / cp
     timing = [i * interval for i in range(cp)]
 
@@ -154,7 +165,13 @@ def main():
       input_bound = input_bound_list[i]
       bound = model.forward_subinterval(input_bound)
       bound_raw = bound.squeeze(0).squeeze(0)
-      y_ = model(points_list[i].to(device))
+      for p in points_list[i]:
+        p_ = rescaling_input(p).detach().tolist()
+        pp = [[ppp] for ppp in p_]
+        p_trace = Trace(states=pp, times=times)
+        spec_result = specification.evaluate(p_trace)
+        y_ = scaling_output(spec_result)
+      # y_ = model(points_list[i].to(device))
       y_list.append(y_.tolist())
       bound_list.append(bound_raw.tolist())
 

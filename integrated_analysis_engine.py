@@ -174,7 +174,8 @@ safety_rpm = 4300
 phi = "!(F[0,30] (Speed >= " + str(safety_speed) +") and F[0,30] (RPM >= " + str(safety_rpm) + "))"# specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
 print('phi: {}'.format(phi))
 specification = rtamt.parse_dense(phi, {"Speed": 0, "RPM": 1})
-optimizer = DualAnnealing(min_cost=0.0)
+min_cost = 0.01
+optimizer = DualAnnealing(min_cost=min_cost)
 signals = {
     "throttle": SignalInput(control_points=[(0, 100)] * 10),
 }
@@ -321,7 +322,12 @@ def main():
               # for c in node.children:
               #   if not c.visited:
               #     node = c
-            node = node.children[path[l]]
+            if node.children[path[l]].visited:
+              # If the child node is visited, we need to go up to the parent node
+              node.visited = True
+              node = node.parent
+            else:
+              node = node.children[path[l]]
             break
         else:
           # If the result is not falsified, then the entire subtree can regarded as safe, meaning there will be no vulnerable node
@@ -478,7 +484,7 @@ def falsification_with_actual_model(node):
   res[0].evaluations.sort(key=lambda x: x.cost)
   best_sample = res[0].evaluations[0].sample.values
   best_result = res[0].evaluations[0].extra
-  if res[0].evaluations[0].cost < 0:
+  if res[0].evaluations[0].cost < min_cost:
       # red_falsified.append([d, res[0].evaluations[0].cost])
       print('Falsified')
       print('Cost: {}'.format(res[0].evaluations[0].cost))

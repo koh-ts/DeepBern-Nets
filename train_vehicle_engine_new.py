@@ -509,6 +509,9 @@ def train_regression(
             epoch_loss += loss
             epoch_robust_loss += robust_loss
             loss.backward()
+            if cfg.TRAIN.GRAD_CLIP:
+                MAX_GRAD_NORM = 1.0
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=MAX_GRAD_NORM)
             optimizer.step()
             # if (batch_idx+1) % 100 == 0 or (batch_idx+1) == len(trainloader):
             #     print('==>>> epoch: {}, batch index: {}, train loss: {:.6f}'.format(
