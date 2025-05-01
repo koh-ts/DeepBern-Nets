@@ -53,7 +53,7 @@ import logging
 #   "robustness_max": 2332.626220703125,
 # }
 
-# new enigne spec data 
+# new enigne spec data for small
 scaling_factor = {
   "speed_min": 0.0,
   "speed_max": 134.413849817066,
@@ -64,6 +64,19 @@ scaling_factor = {
   "train_len": 23200,
   "test_len": 5800
 }
+
+
+# new engine spec data for medium
+# scaling_factor = {
+#   "speed_min": -2.971394183178259,
+#   "speed_max": 166.5363382521565,
+#   "rpm_min": 600.0,
+#   "rpm_max": 6000.0,
+#   "robustness_min": -65.91999816894531,
+#   "robustness_max": 1079.2451171875,
+#   "train_len": 64800,
+#   "test_len": 16200
+# }
 
 class VehicleEngine(Model[list[float], None]):
     MODEL_NAME = "sldemo_autotrans_mod03"
@@ -199,7 +212,8 @@ def main():
     input_dimension = params['model_state_dict']['net.0.weight'].shape[1]
     num_neurons = params['model_state_dict']['net.0.weight'].shape[0]
     num_layers = (len(params['model_state_dict']._metadata) - 3) // 2
-    model = FCModel([input_dimension] + [num_neurons] * num_layers + [1], 8).to(device)
+    degree = params['model_state_dict']['net.1._basis_indices'].shape[1]-1
+    model = FCModel([input_dimension] + [num_neurons] * num_layers + [1], degree).to(device)
     # model = FCModel([input_dimension,515,515,515,515,515,1], 8).to(device)
     model.eval()
     input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
@@ -213,7 +227,7 @@ def main():
     t = HistoryTrie(height=cp, num_child=4)
     tree = t.root
     # path table is from angr-staliro/misc/min_max_control04.json
-    path_table = {0: [[600, 3300], [0, 80]], 1: [[600, 3300], [80, 135.54785661249386]], 2: [[3300, 4775.429858741292], [0, 80]], 3: [[3300, 4775.429858741292], [80, 135.54785661249386]]}
+    path_table = {0: [[scaling_factor['rpm_min'], 3300], [scaling_factor['speed_min'], 80]], 1: [[scaling_factor['rpm_min'], 3300], [80, scaling_factor['speed_max']]], 2: [[3300, scaling_factor['rpm_max']], [scaling_factor['speed_min'], 80]], 3: [[3300, scaling_factor['rpm_max']], [80, scaling_factor['speed_max']]]}
     q = []
     safe_range = []
     unsafe_range = []

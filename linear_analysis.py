@@ -276,8 +276,13 @@ def main():
             falsified_list.append([node.path, res, best_result, v_count])
             v_count += 1
             path = path_extraction(best_result)
-            for i in range(len(node.path), len(path)):
-                node = node.children[path[i]]
+            tmp_node = node
+            for i in range(len(tmp_node.path), len(path)):
+                tmp_node = tmp_node.children[path[i]]
+            if tmp_node.visited == False:
+                node = tmp_node
+            else:
+                node = node.parent
             res_check, best_result_check = falsification_with_actual_model(node)
             if res_check[0].evaluations[0].cost < 0.0:
                 leaf_check_list.append([node.path, res_check, best_result_check, v_count])
