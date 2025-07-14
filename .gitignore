@@ -4,3 +4,5 @@ checkpoints*
 mlruns*
 experiments*
 .vscode
+result*/
+config*/

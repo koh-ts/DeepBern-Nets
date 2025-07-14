@@ -5,23 +5,20 @@ import numpy as np
 import json
 import sys
 sys.path.append('/home/koh/work/matiec_rampo/examples/misc')
-sys.path.append('/home/koh/work/RampoNN')
-# sys.path.append('/home/koh/work/staliro')
+sys.path.append('/home/koh/work/angr-staliro/models')
+# sys.path.append('/home/koh/work/angr-staliro/models')
 # sys.path.insert(0, '/home/koh/work/psy-taliro/src')
 # sys.path.insert(0, '/home/koh/miniconda3/envs/deepbern/lib/python3.9/site-packages')
 # sys.path.append('/home/koh/work')
 print(sys.path)
 from tree import *
 from graphviz import *
+import argparse
 
 from staliro import Sample, SignalInput, TestOptions, staliro
 from staliro.models import Model, Result
 from staliro.optimizers import DualAnnealing
 from staliro.specifications import rtamt
-
-from TNN import STL2NN_TankHeight_BernMin
-
-import argparse
 
 # from staliro import models, optimizers, specifications
 # from staliro.options import TestOptions
@@ -46,79 +43,47 @@ else:
 import time
 import logging
 
-scaling_factor = {
-  "min": [
-    0.00012228660424362658,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    -12.947212219238281
-  ],
-  "max": [
-    7.999964949027126,
-    8.48736771478237,
-    8.973167500638938,
-    9.452481768993627,
-    9.925128063251766,
-    10.394770541981519,
-    10.811635473914432,
-    11.293867117582742,
-    11.773110825827766,
-    12.248974776305648,
-    12.721085244405165,
-    13.189033979699555,
-    13.644411232334877,
-    14.073094462889278,
-    14.464576232984038,
-    14.811990889865044,
-    15.15830120608507,
-    15.510364709758887,
-    15.872620274371885,
-    16.34860212117229,
-    16.775598523290164,
-    17.267232982560255,
-    17.75560763595966,
-    18.23467056595263,
-    18.698969207133995,
-    19.14366880987464,
-    19.56455244032151,
-    19.95802098039758,
-    20.321093127801905,
-    20.65140539600957,
-    20.94721211427172,
-    7.999631881713867
-  ]
-}
+# old engine spec data
+# scaling_factor = {
+#   "speed_min": 0.0,
+#   "speed_max": 135.54785661249386,
+#   "rpm_min": 600.0,
+#   "rpm_max": 4775.429858741292,
+#   "robustness_min": -15.5478515625,
+#   "robustness_max": 2332.626220703125,
+# }
 
-class TankControlFlowRate(Model[list[float], None]):
-    MODEL_NAME = "tankcontrol_flowrate"
+# new enigne spec data for small
+# scaling_factor = {
+#   "speed_min": 0.0,
+#   "speed_max": 134.413849817066,
+#   "rpm_min": 600.0,
+#   "rpm_max": 4775.234658160327,
+#   "robustness_min": -34.413848876953125,
+#   "robustness_max": 2120.63232421875,
+#   "train_len": 23200,
+#   "test_len": 5800
+# }
+
+# new engine spec data for large each dimension
+with open('/home/koh/work/matiec_rampo/examples/vehicle_engine/data_025/done/data_vehicle_engine_min_max_025_large01.json', 'r') as f:
+    scaling_factor = json.load(f)
+
+
+# new engine spec data for medium
+# scaling_factor = {
+#   "speed_min": -2.971394183178259,
+#   "speed_max": 166.5363382521565,
+#   "rpm_min": 600.0,
+#   "rpm_max": 6000.0,
+#   "robustness_min": -65.91999816894531,
+#   "robustness_max": 1079.2451171875,
+#   "train_len": 64800,
+#   "test_len": 16200
+# }
+
+class VehicleEngine(Model[list[float], None]):
+    MODEL_NAME = "sldemo_autotrans_mod03"
 
     def __init__(self) -> None:
         if not _has_matlab:
@@ -133,7 +98,7 @@ class TankControlFlowRate(Model[list[float], None]):
         is_loaded = engine.bdIsLoaded(self.MODEL_NAME)
         if not is_loaded:
             engine.open_system(self.MODEL_NAME, nargout=0)
-        engine.set_param(self.MODEL_NAME + '/open_loop', 'Value', '1', nargout=0)
+        # engine.set_param(self.MODEL_NAME + '/open_loop', 'Value', '1', nargout=0)
 
         model_opts = engine.simget(self.MODEL_NAME)
 
@@ -167,32 +132,43 @@ def path_extraction(best_result):
     # best_result = simulate_model(model, options, best_sample)
     path = []
 
-    # # This works only for the current setting: cp = 10, sim_time = 30
+    # This works only for the current setting: cp = 10, sim_time = 30
+    # l = len(best_result.trace.states)
+    # cp = 10
+    # interval = l // cp
+    # extract_point_list = [int(i * interval) for i in range(cp)]
     # extract_point_list = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]
-    # # This works only for the current setting: cp = 4, sim_time = 30
-    # # extract_point_list = [0, 8, 15, 23]
+    # This works only for the current setting: cp = 4, sim_time = 30
+    # extract_point_list = [0, 8, 15, 23]
+
+
+    # Check if the part below works
     sim_time = best_result.trace.times[-1]
     interval = sim_time / cp
-    timing = [i * interval for i in range(cp)]
+    extract_point_list = [i * interval for i in range(cp)]
 
     # Find index of nearest time point in trace for each extract point
-    extract_point_list = []
-    for p in timing:
+    indices = []
+    for p in extract_point_list:
       # Find the index of the smallest value in times that is >= p
       idx = np.searchsorted(best_result.trace.times, p)
       # Make sure we don't go out of bounds
       if idx >= len(best_result.trace.times):
         idx = len(best_result.trace.times) - 1
-      extract_point_list.append(idx)
+      indices.append(idx)
 
-    for p in extract_point_list:
-        if best_result.trace.states[p][0] >= ranges['TankHeight'][0][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][0][1]:
+    for p in indices:
+        if best_result.trace.states[p][0] >= ranges['speed'][0][0] and best_result.trace.states[p][0] <= ranges['speed'][0][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][0][0] and best_result.trace.states[p][1] <= ranges['rpm'][0][1]:
             path.append(0)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][1][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][1][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][1][0] and best_result.trace.states[p][0] <= ranges['speed'][1][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][1][0] and best_result.trace.states[p][1] <= ranges['rpm'][1][1]:
             path.append(1)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][2][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][2][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][2][0] and best_result.trace.states[p][0] <= ranges['speed'][2][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][2][0] and best_result.trace.states[p][1] <= ranges['rpm'][2][1]:
             path.append(2)
-        elif best_result.trace.states[p][0] >= ranges['TankHeight'][3][0] and best_result.trace.states[p][0] <= ranges['TankHeight'][3][1]:
+        elif best_result.trace.states[p][0] >= ranges['speed'][3][0] and best_result.trace.states[p][0] <= ranges['speed'][3][1] and \
+            best_result.trace.states[p][1] >= ranges['rpm'][3][0] and best_result.trace.states[p][1] <= ranges['rpm'][3][1]:
             path.append(3)
         else:
             path.append(-1)
@@ -204,29 +180,30 @@ def path_extraction(best_result):
 # device = 'cuda:4'
 device = 'cpu'
 
+sim_model = VehicleEngine()
+ranges = {
+	"throttle": [[87.7, 100], [0, 81.599], [0, 63.099], [0, 87.298]],
+	"rpm": [[0, 3300], [0, 3300], [3300, 4500], [3300, 4500]],
+	"speed": [[0, 80], [80, 120], [0, 80], [80, 120]]
+}
+safety_speed = 100
+safety_rpm = 4300
+phi = "!(F[0,30] (Speed >= " + str(safety_speed) +") and F[0,30] (RPM >= " + str(safety_rpm) + "))"# specification = TLTK(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
+print('phi: {}'.format(phi))
+specification = rtamt.parse_dense(phi, {"Speed": 0, "RPM": 1})
+min_cost = 0.01
+optimizer = DualAnnealing(min_cost=min_cost)
+signals = {
+    "throttle": SignalInput(control_points=[(0, 100)] * 10),
+}
+options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals, seed=123)
+
+
 parser = argparse.ArgumentParser(description='Integrated Analysis')
-# parser.add_argument('--cp', type=int, required=True, help='Control points')
-parser.add_argument('--cp', type=int, default=10, help='Control points')
+parser.add_argument('--cp', type=int, required=True, help='Control points')
 args = parser.parse_args()
 cp = args.cp
-
-
-sim_model = TankControlFlowRate()
-ranges = {
-  "TankHeight": [[0.0, 5.0], [5.0, 7.0], [7.0, 10.0], [10.0, 100.0]],
-  "InValve": [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [0.0, 0.0]],
-    "OutValve": [[0.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
-}
-phi = "(always[0,30] (TankHeight <= 150))"
-specification = rtamt.parse_dense(phi, {"TankHeight": 0, "InValve": 1, "OutValve": 2})
-optimizer = DualAnnealing(min_cost=0.0)
-signals = {
-    "InValve": SignalInput(control_points=[(0, 1)] * cp),
-    "OutValve": SignalInput(control_points=[(0, 1)] * cp),
-    "InValveRate": SignalInput(control_points=[(30, 100)] * cp),
-    "OutValveRate": SignalInput(control_points=[(30, 100)] * cp), 
-}
-options = TestOptions(runs=1, iterations=100, tspan=(0, 30), signals=signals)
+# cp = 10
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
@@ -234,9 +211,14 @@ def main():
     torch.cuda.manual_seed(123)
     torch.backends.cudnn.enabled=False
     torch.backends.cudnn.deterministic=True
-    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/state_robust/state_robust_02/checkpoint_best_model.pth')
-    input_dimension = len(scaling_factor['min'][:-1])
-    model = FCModel([input_dimension,1024,1024,1024,1024,1], 8).to(device)
+    # params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine/vehicle_engine_06/checkpoint_best_model.pth')
+    params = torch.load('/home/koh/work/DeepBern-Nets/experiments/staliro/vehicle_engine_new/vehicle_engine_01/checkpoint_best_model.pth')
+    input_dimension = params['model_state_dict']['net.0.weight'].shape[1]
+    num_neurons = params['model_state_dict']['net.0.weight'].shape[0]
+    num_layers = (len(params['model_state_dict']._metadata) - 3) // 2
+    degree = params['model_state_dict']['net.1._basis_indices'].shape[1]-1
+    model = FCModel([input_dimension] + [num_neurons] * num_layers + [1], degree).to(device)
+    # model = FCModel([input_dimension,515,515,515,515,515,1], 8).to(device)
     model.eval()
     input_bounds_ = torch.tensor([[0.0, 1.0] for _ in range(input_dimension)]).to(device)
     model.load_state_dict(params['model_state_dict'])
@@ -246,14 +228,10 @@ def main():
     entire_bounds_ = rescaling_output(entire_bounds.squeeze(0).squeeze(0))
     print('Entire bound: {}'.format(entire_bounds_.tolist()))
 
-    stl_model = STL2NN_TankHeight_BernMin(degree=5, lb=-4.0, ub=160.0).to(device)
-
     t = HistoryTrie(height=cp, num_child=4)
-    # G = Digraph(format='png')
-    # G.attr('node', shape='circle')
-    # G.node('root', label='root')
     tree = t.root
-    path_table = {0: [0.0, 5.0], 1: [5.0, 7.0], 2: [7.0, 10.0], 3: [10.0, 10.1]}
+    # path table is from angr-staliro/misc/min_max_control04.json
+    path_table = {0: [[scaling_factor['rpm_min'], 3300], [scaling_factor['speed_min'], 80]], 1: [[scaling_factor['rpm_min'], 3300], [80, scaling_factor['speed_max']]], 2: [[3300, scaling_factor['rpm_max']], [scaling_factor['speed_min'], 80]], 3: [[3300, scaling_factor['rpm_max']], [80, scaling_factor['speed_max']]]}
     q = []
     safe_range = []
     unsafe_range = []
@@ -261,10 +239,7 @@ def main():
     yellow_range = []
     falsified_list = []
     not_falsified_list = []
-    # q.append(tree)
-    # for c in tree.children:
-    #   q.append(c)
-    start = time.perf_counter()
+    start = time.time()
 
     res = staliro(sim_model, specification, optimizer, options)
     res[0].evaluations.sort(key=lambda x: x.cost)
@@ -272,22 +247,7 @@ def main():
     best_result = res[0].evaluations[0].extra
     path = path_extraction(best_result)
 
-    sim_time = best_result.trace.times[-1]
-    interval = sim_time / cp
-    timing = [i * interval for i in range(cp)]
-
-    # Find index of nearest time point in trace for each extract point
-    extract_point_list = []
-    for p in timing:
-      # Find the index of the smallest value in times that is >= p
-      idx = np.searchsorted(best_result.trace.times, p)
-      # Make sure we don't go out of bounds
-      if idx >= len(best_result.trace.times):
-        idx = len(best_result.trace.times) - 1
-      extract_point_list.append(idx)
-
     node = t.root
-    # node = node.children[path[0]]
     bound_ = [-0.1, 0.1]
     v_count = 0
     while t.root.visited == False:
@@ -305,7 +265,6 @@ def main():
         if bound_[0] < 0.0 and bound_[1] > 0.0:
           yellow_range.append((node.path, v_count))
           v_count += 1
-          tmp = []
           if node.height == 0:
             # This is when the node is a leaf and still yellow result
             break
@@ -313,27 +272,30 @@ def main():
             if not node.children[path[j]].visited:
               node = node.children[path[j]]
             # What if the child node is visited?
+          # one_dimension: num of states for one state veriable (e.g., Speed, RPM)
+          one_dimension = input_dimension // 2
+
+          # each_interval: num of states for one control point
+          # If one_dimension = 751, meaning 0.04 sec for sampling time for 30 sec of simulation time,
+          # and cp = 10, then each_interval = 75, meaning all this 75 states fall in the same branch
+          # in the control prgram for one control point duration
+          each_interval = one_dimension // cp
+          tmp = []
+          tmp_speed = []
+          tmp_rpm = []
           for i, p in enumerate(node.path):
             tmp_val = path_table[p]
-            if i + 1 < cp:
-              tmp += [tmp_val] * (extract_point_list[i + 1] - extract_point_list[i])
-            else:
-              tmp += [tmp_val] * (len(best_result.trace.times) - extract_point_list[i])
-            # print('tmp: {}'.format(tmp))
-          tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
-          #   tmp += [tmp_val] * 3
-          # tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+            tmp_speed += [tmp_val[1]] * each_interval
+            tmp_rpm += [tmp_val[0]] * each_interval
+
+          tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
+          tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
+          tmp = tmp_speed + tmp_rpm
 
           # NN reachability analysis
-          # input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-          # bound = model.forward_subinterval(input_bound)
-          # bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-
-          # r = stl_model.ibp_forward_bern(torch.tensor(input_bound.unsqueeze(0).unsqueeze(2)).to(device))
-          r = stl_model.ibp_forward_bern(torch.tensor(tmp).unsqueeze(0).unsqueeze(2).to(device))
-          bound_ = r.squeeze(0)
-          # print('tmp: {}'.format(tmp))
-          print('Bound: {}'.format(bound_.tolist()))
+          input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
+          bound = model.forward_subinterval(input_bound)
+          bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
 
         # If the NN reachability result is red or white, we need to go up to the parent node and
         # do the falsification with the actual model excluding the child node that has previously been visited
@@ -348,6 +310,7 @@ def main():
             v_count += 1
           node.visited = True
           node = node.parent
+          break
 
       # Here, we do the falsification with the actual model
       # There are several cases from the previous NN reachability step
@@ -398,103 +361,22 @@ def main():
         continue
 
       tmp = []
+      tmp_speed = []
+      tmp_rpm = []
       for i, p in enumerate(node.path):
         tmp_val = path_table[p]
-        # For cp == 10
-        tmp += [tmp_val] * 3
-      tmp += [[0.0, 10.1] for _ in range(31 - len(tmp))]
+        tmp_speed += [tmp_val[1]] * each_interval
+        tmp_rpm += [tmp_val[0]] * each_interval
+
+      tmp_speed += [[0, 135.6] for _ in range(one_dimension - len(tmp_speed))]
+      tmp_rpm += [[600, 4775.5] for _ in range(one_dimension - len(tmp_rpm))]
+      tmp = tmp_speed + tmp_rpm
+
       # NN reachability analysis
-      # input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
-      # bound = model.forward_subinterval(input_bound)       
-      # bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
-
-      r = stl_model.ibp_forward_bern(torch.tensor(tmp).unsqueeze(0).unsqueeze(2).to(device))
-      bound_ = r.squeeze(0)
-      # print('tmp: {}'.format(tmp))
-      print('Bound: {}'.format(bound_.tolist()))
-      
-
-          
-          
-
-      # If it's a leaf node and the color is yellow, that means we need to do the falsification with the actual model on the leaf node
-      # if bound_[0] < 0.0 and bound_[1] > 0.0:
-      #   res, best_result = falsification_with_actual_model(node)
-      #   falsified = res.runs[0].history[0].cost < 0.0
-      #   if falsified:
-      #     # Since the result is falsified, we store this node as a potential vulnerabile node
-      #     node.visited = True
-      #     falsified_list.append(node.path)
-      #   else:
-      #     # If the result is not falsified, we store this node as a safe node
-      #     node.visited = True
-      #     not_falsified_list.append(node.path)
-      # else:
-      #   # Regardless of whether it's red or while, we just mark the node as visited and move up to the parent node
-      #   node.visited = True
-      #   node = node.parent
-      #   res, best_result = falsification_with_actual_model(node)
-      #   falsified = res.runs[0].history[0].cost < 0.0
-      #   if falsified:
-      #     # Extract the path and go all the way to the leaf node
-      #     extracted_path = path_extraction(best_result)
-      #     current_depth = len(path)
-      #     for i in range(current_depth, 10):
-      #       node = node.children[extracted_path[i]]
-      #   node = node.parent
-
-
-
-
-      # If it's safe result, meaning that the entire output bound is positive
-
-      # if negative_value_check(bound_):
-      #   node.visited = True
-      #   for c in node.children:
-      #     q.append(c)
-      # if node.height == 0:
-      #   if negative_value_check(bound_):
-
-      #     if red_yellow_check(bound_):
-      #        red_range.append(path)
-      #     else:
-      #        yellow_range.append(path)
-      #     print('Path: {}'.format(path))
-      #     print('Output bound: {}'.format(bound_.tolist()))
-      #     node.visited = True
-      #   else:
-      #     safe_range.append(path)
-    
-      #   with open('/home/koh/work/DeepBern-Nets/safe_ranges.json', 'w') as f:
-      #       json.dump(safe_range, f)
-      #   with open('/home/koh/work/DeepBern-Nets/red_ranges.json', 'w') as f:
-      #       json.dump(red_range, f)
-      #   with open('/home/koh/work/DeepBern-Nets/yellow_ranges.json', 'w') as f:
-      #       json.dump(yellow_range, f)
-    
-    # end = time.time()
-    # print('Time: {}'.format(end - start))
-    # print('# of safe range: {}'.format(len(safe_range)))
-    # print('# of red range: {}'.format(len(red_range)))
-    # print('# of yellow range: {}'.format(len(yellow_range)))
-    # for c in t.root.children:
-    #     G.node(str(c.path), label=str(c.path))
-    #     G.edge('root', str(c.path))
-    #     for cc in c.children:
-    #         G.node(str(cc.path), label=str(cc.path))
-    #         G.edge(str(c.path), str(cc.path))
-    #         for ccc in cc.children:
-    #             G.node(str(ccc.path), label=str(ccc.path))
-    #             G.edge(str(cc.path), str(ccc.path))
-    #             for cccc in ccc.children:
-    #                 G.node(str(cccc.path), label=str(cccc.path))
-    #                 G.edge(str(ccc.path), str(cccc.path))
-    # for r in red_range:
-    #     G.node(str(r), label=str(r), style='filled', fillcolor='red')
-    # for y in yellow_range:
-    #     G.node(str(y), label=str(y), style='filled', fillcolor='yellow')
-    # G.render('tree', outfile='/home/koh/work/DeepBern-Nets/tree_reachability_red_yellow.png')
-    end = time.perf_counter()
+      input_bound = scaling_input_bound(torch.tensor(tmp).to(device))
+      bound = model.forward_subinterval(input_bound)
+      bound_ = rescaling_output(bound.squeeze(0).squeeze(0))
+    end = time.time()
     # print('Time: {}'.format(end - start))
     # print('safe range: {}'.format(safe_range))
     # print('red range: {}'.format(red_range))
@@ -502,6 +384,7 @@ def main():
     # print('not falsified list: {}'.format(not_falsified_list))
     print('Time: {}'.format(end - start))
     stamp = str(time.strftime("%Y%m%d_%H%M%S")) + '_' + str(cp)
+
     execution_info = {
       'execution_time': end - start,
       'safe_range_count': len(safe_range),
@@ -511,13 +394,13 @@ def main():
       'not_falsified_list_count': len(not_falsified_list),
       'v_count': v_count
     }
-    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_numbers.json', 'w') as f:
+    with open('/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_numbers.json', 'w') as f:
       json.dump(execution_info, f)
-    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_falsified.json')
-    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_not_falsified.json')
-    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_safe_ranges.json')
-    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_red_ranges.json')
-    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_min_operator/' + stamp + '_yellow_ranges.json')
+    save_falsification_result(falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_falsified.json')
+    save_falsification_result(not_falsified_list, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_not_falsified.json')
+    save_reachability_result(safe_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_safe_ranges.json')
+    save_reachability_result(red_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_red_ranges.json')
+    save_reachability_result(yellow_range, '/home/koh/work/DeepBern-Nets/result/integrated_analysis_engine_each/' + stamp + '_yellow_ranges.json')
     print('Done')
 
 def save_falsification_result(raw_data, filename):
@@ -575,13 +458,14 @@ def falsification_with_actual_model(node):
   sim_time = tend - tstart
   interval = sim_time / num_cp
   cp_array = [i * interval for i in range(num_cp)]
-  Phi = "(G[0,30] (TankHeight <= 15))"
+  Phi = "!(F[0,30] (Speed >= " + str(safety_speed) +") and F[0,30] (RPM >= " + str(safety_rpm) + "))"
   phi = ''
   epsilon = 0.0
   for i, p in enumerate(path):
-    phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
-            .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
-            ranges['TankHeight'][p][0], ranges['TankHeight'][p][1])
+    phi += '(G[{}, {}] (Speed >= {} and Speed <= {} and RPM >= {} and RPM <= {}))' \
+        .format(max(0, cp_array[i] - epsilon), min(cp_array[i] + epsilon, sim_time), \
+        ranges['speed'][p][0], ranges['speed'][p][1], \
+        ranges['rpm'][p][0], ranges['rpm'][p][1])
     if i != len(path) - 1:
         phi += ' and '
   if phi != '':
@@ -602,9 +486,10 @@ def falsification_with_actual_model(node):
     extra_phi = ''
     # c is one of [0, 1, 2, 3]
     for k, c in enumerate(pruning_children):
-      extra_phi += '(G[{:.2f}, {:.2f}] (TankHeight >= {} and TankHeight <= {}))' \
-            .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
-            ranges['TankHeight'][c][0], ranges['TankHeight'][c][1])
+      extra_phi += '(G[{}, {}] (Speed >= {} and Speed <= {} and RPM >= {} and RPM <= {}))' \
+        .format(max(0, cp_array[j] - epsilon), min(cp_array[j] + epsilon, sim_time), \
+        ranges['speed'][c][0], ranges['speed'][c][1], \
+        ranges['rpm'][c][0], ranges['rpm'][c][1])
       if k != len(pruning_children) - 1:
         extra_phi += ' or '
     if extra_phi != '':
@@ -612,13 +497,12 @@ def falsification_with_actual_model(node):
 
   print('Searching Node: {}, Phi: {}'.format(path, phi))
 
-  # spec = TLTK(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
-  spec = rtamt.parse_dense(phi, {'TankHeight': 0, 'InValve': 1, 'OutValve': 2})
+  spec = rtamt.parse_dense(phi, {'Speed': 0, 'RPM': 1})
   res = staliro(sim_model, spec, optimizer, options)
   res[0].evaluations.sort(key=lambda x: x.cost)
   best_sample = res[0].evaluations[0].sample.values
   best_result = res[0].evaluations[0].extra
-  if res[0].evaluations[0].cost < 0:
+  if res[0].evaluations[0].cost < min_cost:
       # red_falsified.append([d, res[0].evaluations[0].cost])
       print('Falsified')
       print('Cost: {}'.format(res[0].evaluations[0].cost))
@@ -627,6 +511,23 @@ def falsification_with_actual_model(node):
       print('Not falsified')
       print('Cost: {}'.format(res[0].evaluations[0].cost))
   return res, best_result
+
+def scaling_input_bound_engine(b):
+  # First 751 elements in b are for Speed, and the rest 751 elements are for RPM
+  # We have speed_min, speed_max, rpm_min, rpm_max
+  # Min max scaling: x' = (x - min) / (max - min)
+  lb_speed = (b[:751, 0] - scaling_factor['speed_min']) / (scaling_factor['speed_max'] - scaling_factor['speed_min'])
+  ub_speed = (b[:751, 1] - scaling_factor['speed_min']) / (scaling_factor['speed_max'] - scaling_factor['speed_min'])
+  lb_rpm = (b[751:, 0] - scaling_factor['rpm_min']) / (scaling_factor['rpm_max'] - scaling_factor['rpm_min'])
+  ub_rpm = (b[751:, 1] - scaling_factor['rpm_min']) / (scaling_factor['rpm_max'] - scaling_factor['rpm_min'])
+  lb = torch.cat([lb_speed, lb_rpm])
+  ub = torch.cat([ub_speed, ub_rpm])
+  return torch.stack([lb, ub], dim=1)
+
+def rescaling_output_engine(y):
+  min_max = torch.tensor([scaling_factor['robustness_min'], scaling_factor['robustness_max']]).T.to(device)
+  y = y * (min_max[1] - min_max[0]) + min_max[0]
+  return y
 
 def scaling_input(x):
   min_max = torch.tensor([scaling_factor['min'], scaling_factor['max']]).T.to(device)
